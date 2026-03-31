@@ -1,6 +1,6 @@
 # GatherYourDeals-ETL
 
-Two-step receipt pipeline that reads a photo of a receipt and produces structured JSON, orchestrated as a [Railtracks](https://railtracks.ai) Flow.
+Two-step receipt pipeline that reads a photo of a receipt and produces structured JSON, orchestrated as a [Railtracks](https://railtracks.org/) Flow.
 
 ```
 Receipt photo  (JPG / PNG / WEBP / HEIC / TIFF / BMP)

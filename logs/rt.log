@@ -2144,3 +2144,252 @@ openai.RateLimitError: Error code: 429 - {'error': {'message': 'Provider returne
 2026-03-30 08:45:59,069 - 78.213 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
 2026-03-30 08:46:24,655 - 103.798 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
 2026-03-30 08:46:24,695 - 103.839 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_b3833f99-41a8-475c-9ccd-e93ccd695ee6.json
+2026-03-30 22:53:02,297 - 59.772 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-30 22:53:35,456 - 92.930 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-30 22:53:35,477 - 92.951 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_94468287-8052-44c2-b0b7-3790d69c4c59.json
+2026-03-30 22:54:36,490 - 63.562 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-30 22:55:09,015 - 96.087 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-30 22:55:09,036 - 96.109 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_be6148f6-fb96-4504-a215-a7e7c1d0ccd7.json
+2026-03-30 22:58:31,468 - 62.058 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-30 22:58:45,323 - 75.913 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-30 22:58:45,355 - 75.946 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_2960be9b-93af-4594-b336-c956742ebd56.json
+2026-03-30 23:17:58,269 - 62.573 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-30 23:18:05,760 - 70.064 - ERRORs - RT.railtracks.state.state - receipt_pipeline FAILED
+Traceback (most recent call last):
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/execution/execution_strategy.py", line 52, in execute
+    result = await invoke_func()
+             ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/execution/task.py", line 36, in invoke
+    return await self.node.tracked_invoke()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 149, in tracked_invoke
+    raise e
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 147, in tracked_invoke
+    return await self.invoke()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 81, in async_wrapper
+    return await method(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/built_nodes/concrete/function_base.py", line 136, in invoke
+    return await self.func(*self.args, **self.kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 634, in receipt_pipeline
+    return await structure_node(ocr_out)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 610, in structure_node
+    result = await asyncio.to_thread(
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 493, in structure
+    result, pt, ct, api_cost, api_latency_ms = _structure_clod(ocr_text, model)
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 404, in _structure_clod
+    raise ValueError(f"CLOD returned no choices (model={model}): {data.get('error') or data}")
+ValueError: CLOD returned no choices (model=google/gemini-2.0-flash): No project models found
+2026-03-30 23:18:05,993 - 70.297 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_261a5a44-7e16-4f19-af1d-3c96a12cc39a.json
+2026-03-30 23:20:41,797 - 68.940 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-30 23:20:50,093 - 77.236 - ERRORs - RT.railtracks.state.state - receipt_pipeline FAILED
+Traceback (most recent call last):
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/execution/execution_strategy.py", line 52, in execute
+    result = await invoke_func()
+             ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/execution/task.py", line 36, in invoke
+    return await self.node.tracked_invoke()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 149, in tracked_invoke
+    raise e
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 147, in tracked_invoke
+    return await self.invoke()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 81, in async_wrapper
+    return await method(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/built_nodes/concrete/function_base.py", line 136, in invoke
+    return await self.func(*self.args, **self.kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 634, in receipt_pipeline
+    return await structure_node(ocr_out)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 610, in structure_node
+    result = await asyncio.to_thread(
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 493, in structure
+    result, pt, ct, api_cost, api_latency_ms = _structure_clod(ocr_text, model)
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 404, in _structure_clod
+    raise ValueError(f"CLOD returned no choices (model={model}): {data.get('error') or data}")
+ValueError: CLOD returned no choices (model=google/gemma-3n-e4b-it): No project models found
+2026-03-30 23:20:50,154 - 77.297 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_44f5cf15-4136-4eab-a3cb-97e89be1b713.json
+2026-03-30 23:24:56,798 - 63.186 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-30 23:25:05,805 - 72.193 - ERRORs - RT.railtracks.state.state - receipt_pipeline FAILED
+Traceback (most recent call last):
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/execution/execution_strategy.py", line 52, in execute
+    result = await invoke_func()
+             ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/execution/task.py", line 36, in invoke
+    return await self.node.tracked_invoke()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 149, in tracked_invoke
+    raise e
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 147, in tracked_invoke
+    return await self.invoke()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 81, in async_wrapper
+    return await method(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/built_nodes/concrete/function_base.py", line 136, in invoke
+    return await self.func(*self.args, **self.kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 634, in receipt_pipeline
+    return await structure_node(ocr_out)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 610, in structure_node
+    result = await asyncio.to_thread(
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 493, in structure
+    result, pt, ct, api_cost, api_latency_ms = _structure_clod(ocr_text, model)
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 404, in _structure_clod
+    raise ValueError(f"CLOD returned no choices (model={model}): {data.get('error') or data}")
+ValueError: CLOD returned no choices (model=google/gemma-3n-e4b): No project models found
+2026-03-30 23:25:05,911 - 72.299 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_aa45c62a-0e0b-40ac-adf9-10d93394464e.json
+2026-03-31 05:38:30,879 - 149.598 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 05:38:43,018 - 161.737 - ERRORs - RT.railtracks.state.state - receipt_pipeline FAILED
+Traceback (most recent call last):
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/execution/execution_strategy.py", line 52, in execute
+    result = await invoke_func()
+             ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/execution/task.py", line 36, in invoke
+    return await self.node.tracked_invoke()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 149, in tracked_invoke
+    raise e
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 147, in tracked_invoke
+    return await self.invoke()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 81, in async_wrapper
+    return await method(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/built_nodes/concrete/function_base.py", line 136, in invoke
+    return await self.func(*self.args, **self.kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 634, in receipt_pipeline
+    return await structure_node(ocr_out)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 610, in structure_node
+    result = await asyncio.to_thread(
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 493, in structure
+    result, pt, ct, api_cost, api_latency_ms = _structure_clod(ocr_text, model)
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 404, in _structure_clod
+    raise ValueError(f"CLOD returned no choices (model={model}): {data.get('error') or data}")
+ValueError: CLOD returned no choices (model=google/gemma-3n-e4b-it-v2): No project models found
+2026-03-31 05:38:43,209 - 161.928 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_36d1b8ca-fa12-4a6d-9216-7b58dc03455a.json
+2026-03-31 15:46:02,475 - 157.652 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 15:46:52,286 - 207.463 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 15:46:52,324 - 207.501 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_081e2fdc-03cc-4761-91fc-dff77cee9916.json
+2026-03-31 16:06:45,820 - 90.031 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:07:26,708 - 130.920 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:07:26,740 - 130.951 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_744c8ce8-c8ba-45fb-b9e7-4d7ae7661282.json
+2026-03-31 16:07:26,796 - 131.007 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:07:42,557 - 146.768 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:07:42,598 - 146.809 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_d25a651a-1c10-4912-a9fe-877e4a78d622.json
+2026-03-31 16:07:42,676 - 146.887 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:07:55,301 - 159.512 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:07:55,337 - 159.549 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_f17ce775-ef74-47ba-bd77-6a6408c30482.json
+2026-03-31 16:07:55,398 - 159.609 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:19:07,727 - 831.938 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:19:07,750 - 831.961 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_5610b9e7-2597-4ec4-9b46-a754f1441ea1.json
+2026-03-31 16:19:07,820 - 832.031 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:19:31,093 - 855.305 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:19:31,124 - 855.335 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_4f572676-94f4-49c2-b9a7-e475e60a4912.json
+2026-03-31 16:19:31,179 - 855.391 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:19:54,179 - 878.390 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:19:54,223 - 878.434 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_0a055cc5-7fab-4754-8f2d-4d0f34d96e26.json
+2026-03-31 16:19:54,403 - 878.614 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:20:25,841 - 910.052 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:20:25,887 - 910.098 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_dfd83518-c96f-4ec7-baa3-1c7cc8a2d527.json
+2026-03-31 16:20:25,959 - 910.170 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:20:48,226 - 932.438 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:20:48,255 - 932.466 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_e405881d-5d99-4f2a-8e59-4a53f5bb7091.json
+2026-03-31 16:20:48,317 - 932.529 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:21:17,822 - 962.033 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:21:17,858 - 962.069 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_dca450b7-f093-41db-ac34-84e838ce6411.json
+2026-03-31 16:22:53,215 - 92.930 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:23:39,660 - 139.375 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:23:39,691 - 139.405 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_f5328a0d-2ec7-48b5-a152-c6ebbe176da2.json
+2026-03-31 16:23:39,732 - 139.447 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:24:02,469 - 162.184 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:24:02,491 - 162.206 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_4c169695-1384-4d73-8b9e-617d4d496a0e.json
+2026-03-31 16:24:02,524 - 162.239 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:24:18,058 - 177.773 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:24:18,091 - 177.806 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_5767b026-889a-4b55-a9ce-93ad758b5656.json
+2026-03-31 16:24:18,129 - 177.844 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:24:37,567 - 197.282 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:24:37,603 - 197.317 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_995d92b6-48c9-4ae9-8873-33cd6beacbf0.json
+2026-03-31 16:24:37,646 - 197.361 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:24:55,555 - 215.270 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:24:55,582 - 215.297 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_f790bcdc-6b4e-4cb9-8275-aa7625d51536.json
+2026-03-31 16:24:55,607 - 215.322 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:25:14,251 - 233.966 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:25:14,285 - 233.999 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_2ce332ad-3366-43dd-a586-a6bdb987dd33.json
+2026-03-31 16:25:14,329 - 234.044 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:25:28,909 - 248.624 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:25:28,937 - 248.652 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_412f97be-3891-4ce3-b28a-cdfd187e858d.json
+2026-03-31 16:25:28,974 - 248.688 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:25:46,826 - 266.541 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:25:46,861 - 266.575 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_dae302fc-cac3-4b5e-a790-66dbb805e365.json
+2026-03-31 16:25:46,907 - 266.622 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:26:02,720 - 282.435 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:26:02,741 - 282.456 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_a6157c31-7d54-48ea-b9ae-d997557537c3.json
+2026-03-31 16:27:36,024 - 92.067 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:28:08,711 - 124.754 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:28:08,743 - 124.786 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_e9bb0355-3fe6-4539-bc57-4c013e44b799.json
+2026-03-31 16:28:08,787 - 124.830 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:28:24,832 - 140.875 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:28:24,862 - 140.905 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_b0d87e2c-dc2f-43e4-b3dc-9c9728cd6730.json
+2026-03-31 16:28:24,903 - 140.946 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:28:49,487 - 165.529 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:28:49,510 - 165.553 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_a60c7410-7af8-4359-8f3b-b7ad4311ec90.json
+2026-03-31 16:28:49,556 - 165.599 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:29:05,347 - 181.390 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:29:05,381 - 181.423 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_31aa4f95-ca7e-4a5d-9011-355b908e62be.json
+2026-03-31 16:29:05,425 - 181.468 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:29:27,620 - 203.663 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:29:27,649 - 203.691 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_5fc7c523-5aa2-437e-9334-771423ce1e20.json
+2026-03-31 16:29:27,691 - 203.733 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:29:43,314 - 219.356 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:29:43,342 - 219.385 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_cfb3f7c9-68d6-43ac-b3ce-0d80c854e410.json
+2026-03-31 16:29:43,389 - 219.431 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:30:04,365 - 240.408 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:30:04,383 - 240.426 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_b4761049-7845-4957-9ebd-c978fcb32304.json
+2026-03-31 16:30:04,416 - 240.459 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:30:19,435 - 255.478 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:30:19,464 - 255.506 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_4955bc09-6bb3-4258-af11-fe5dc7d394b9.json
+2026-03-31 16:30:19,499 - 255.542 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-03-31 16:30:36,071 - 272.114 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-03-31 16:30:36,089 - 272.132 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_cdbbadfb-3e20-464f-b6ca-987d1ffd78f3.json

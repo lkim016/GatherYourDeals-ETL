@@ -82,6 +82,9 @@ import os
 load_dotenv()
 
 from reporting import report, compare, eval_receipts, baseline_report  # noqa: E402 (after load_dotenv)
+from etl_logger import (  # noqa: E402
+    log_adi, log_llm, log_pipeline, log_upload, ADI_COST_PER_PAGE, LOGS_DIR,
+)
 
 # ---------------------------------------------------------------------------
 # Railtracks — flow orchestration + observability
@@ -105,11 +108,8 @@ CLOD_API_KEY        = os.getenv("CLOD_API_KEY", "")
 # Which LLM backend to use: "openrouter" (default) or "clod"
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openrouter").lower()
 
-_DEFAULT_MODELS = {
-    "openrouter": "anthropic/claude-haiku-4.5",
-    "clod":       "Qwen/Qwen2.5-7B-Instruct-Turbo",
-}
-DEFAULT_MODEL = os.getenv("OR_DEFAULT_MODEL", _DEFAULT_MODELS.get(LLM_PROVIDER, "google/gemini-2.0-flash-exp:free"))
+OR_DEFAULT_MODEL   = os.getenv("OR_DEFAULT_MODEL",   "anthropic/claude-haiku-4.5")
+CLOD_DEFAULT_MODEL = os.getenv("CLOD_DEFAULT_MODEL", "google/gemma-3n-E4B-it")
 
 GYD_SERVER_URL = os.getenv("GYD_SERVER_URL", "http://localhost:8080/api/v1")
 GYD_USERNAME   = os.getenv("GYD_USERNAME", "")
@@ -122,10 +122,6 @@ GROUND_TRUTH_DIR = Path("ground_truth")
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".tiff", ".tif", ".bmp"}
-
-
-# ADI cost per page — always log at S0 rate ($0.0015/page) for accurate production cost tracking.
-_ADI_COST_PER_PAGE = 0.0015
 
 # Enable Railtracks logging (writes to logs/rt.log + stdout at INFO level)
 if _RT_AVAILABLE:
@@ -176,98 +172,6 @@ IMPORTANT rules:
 Also include every other field readable from the OCR text as extra
 top-level fields — cashier, member/rewards number, savings, transaction ID,
 store phone, operator number, etc. Preserve all receipt detail."""
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-def _log(entry: dict):
-    LOGS_DIR.mkdir(exist_ok=True)
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    with open(LOGS_DIR / f"etl_{date}.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-def log_adi(trace_id, image_name, user_id, image_size_bytes,
-            pages, cost_usd, latency_ms, success, chars_extracted=None, error=None):
-    """Log one Azure Document Intelligence OCR call."""
-    _log({
-        "time":              datetime.now(timezone.utc).isoformat(),
-        "level":             "INFO" if success else "ERROR",
-        "service":           "etl",
-        "event":             "adi_ocr",
-        "trace_id":          trace_id,
-        "user_id":           user_id,
-        "image_name":        image_name,
-        "image_size_bytes":  image_size_bytes,
-        "ocr_provider":      "azure-document-intelligence",
-        "ocr_latency_ms":    round(latency_ms, 1),
-        "ocr_success":       success,
-        "pages":             pages,
-        "chars_extracted":   chars_extracted,  # OCR equivalent of token count
-        "cost_usd":          round(cost_usd, 6),
-        "error":             error,
-    })
-
-def log_llm(trace_id, image_name, user_id, provider, model,
-            input_tokens, output_tokens, cost_usd,
-            latency_ms, items_extracted, success, error=None, cost_source="unknown"):
-    """Log one LLM structuring call (OpenRouter or Claude)."""
-    _log({
-        "time":              datetime.now(timezone.utc).isoformat(),
-        "level":             "INFO" if success else "ERROR",
-        "service":           "etl",
-        "event":             "llm_extraction",
-        "trace_id":          trace_id,
-        "user_id":           user_id,
-        "image_name":        image_name,
-        "llm_provider":      provider,
-        "llm_model":         model,
-        "llm_latency_ms":    round(latency_ms, 1),
-        "llm_input_tokens":  input_tokens,
-        "llm_output_tokens": output_tokens,
-        "llm_cost_usd":      round(cost_usd, 8),
-        "llm_cost_source":   cost_source,
-        "llm_success":       success,
-        "items_extracted":   items_extracted,
-        "error":             error,
-    })
-
-def log_pipeline(trace_id, image_name, user_id, provider, model,
-                 total_latency_ms, success, error=None):
-    """Log end-to-end pipeline latency for one receipt (OCR + LLM + geocode)."""
-    _log({
-        "time":              datetime.now(timezone.utc).isoformat(),
-        "level":             "INFO" if success else "ERROR",
-        "service":           "etl",
-        "event":             "pipeline_complete",
-        "trace_id":          trace_id,
-        "user_id":           user_id,
-        "image_name":        image_name,
-        "llm_provider":      provider,
-        "llm_model":         model,
-        "total_latency_ms":  round(total_latency_ms, 1),
-        "success":           success,
-        "error":             error,
-    })
-
-def log_upload(trace_id, image_name, user_id,
-               attempted, uploaded, failed, latency_ms, success, error=None):
-    """Log one GYD SDK upload batch."""
-    _log({
-        "time":            datetime.now(timezone.utc).isoformat(),
-        "level":           "INFO" if success else "WARN",
-        "service":         "etl",
-        "event":           "mcp_upload",
-        "trace_id":        trace_id,
-        "user_id":         user_id,
-        "image_name":      image_name,
-        "endpoint":        "POST /api/v1/receipts",
-        "status":          201 if success else None,
-        "latency_ms":      round(latency_ms, 1),
-        "items_attempted": attempted,
-        "items_uploaded":  uploaded,
-        "items_failed":    failed,
-        "error":           error,
-    })
 
 # ---------------------------------------------------------------------------
 # Step 1 — Azure Document Intelligence OCR
@@ -365,7 +269,7 @@ def ocr(image_path: Path, run_id: str, user_id: str = "") -> str:
         ocr_text = result.content or ""
 
         log_adi(run_id, image_path.name, user_id, image_size_bytes,
-                pages, pages * _ADI_COST_PER_PAGE, latency_ms, True,
+                pages, pages * ADI_COST_PER_PAGE, latency_ms, True,
                 chars_extracted=len(ocr_text))
         return ocr_text
 
@@ -411,13 +315,13 @@ def _structure_openrouter(ocr_text: str, model: str) -> tuple[dict, int, int, st
     return _parse_llm_json(resp.choices[0].message.content), pt, ct, resp.id or ""
 
 
-def _fetch_openrouter_cost(generation_id: str) -> float | None:
+def _fetch_openrouter_generation(generation_id: str) -> dict:
     """
-    Fetch actual billed cost from OpenRouter's generation endpoint.
-    Returns total_cost in USD, or None if unavailable.
+    Fetch generation metadata from OpenRouter's generation endpoint.
+    Returns dict with 'cost' (USD float or None) and 'latency_ms' (float or None).
     """
     if not generation_id or not OPENROUTER_API_KEY:
-        return None
+        return {"cost": None, "latency_ms": None}
     import urllib.request
     url = f"https://openrouter.ai/api/v1/generation?id={generation_id}"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"})
@@ -427,14 +331,18 @@ def _fetch_openrouter_cost(generation_id: str) -> float | None:
         try:
             with urllib.request.urlopen(req, timeout=10) as r:
                 data = json.loads(r.read())
-            cost = data.get("data", {}).get("total_cost")
-            if cost is not None:
-                return float(cost)
+            gen = data.get("data", {})
+            cost = gen.get("total_cost")
+            latency = gen.get("generation_time")  # ms, server-side generation time
+            return {
+                "cost":       float(cost)    if cost    is not None else None,
+                "latency_ms": float(latency) if latency is not None else None,
+            }
         except Exception:
             pass
         if attempt < 2:
             time.sleep(1)
-    return None
+    return {"cost": None, "latency_ms": None}
 
 
 # Token-based cost estimates ($/M tokens) for known OpenRouter models.
@@ -458,6 +366,7 @@ def _estimate_openrouter_cost(model: str, input_tokens: int, output_tokens: int)
 _CLOD_PRICING: dict[str, tuple[float, float]] = {
     "Qwen2.5-7B-Instruct-Turbo":      (0.30, 0.12),  # $/M input, $/M output (60% discount applied)
     "Qwen/Qwen2.5-7B-Instruct-Turbo": (0.30, 0.12),  # alias with namespace prefix
+    "anthropic/claude-haiku-4-5":     (1.00, 5.00),  # confirm CLOD pricing — using OpenRouter rate as placeholder
 }
 
 def _estimate_clod_cost(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -500,8 +409,14 @@ def _structure_clod(ocr_text: str, model: str) -> tuple[dict, int, int, float | 
     pt = usage.get("prompt_tokens", 0)
     ct = usage.get("completion_tokens", 0)
     # CLOD may include actual cost in the usage object; fall back to None if absent
-    api_cost = usage.get("total_cost") or usage.get("cost") or data.get("total_cost")
-    return _parse_llm_json(content), pt, ct, float(api_cost) if api_cost is not None else None
+    api_cost    = usage.get("total_cost") or usage.get("cost") or data.get("total_cost")
+    api_latency = usage.get("total_time") or usage.get("generation_time") or data.get("generation_time")
+    return (
+        _parse_llm_json(content),
+        pt, ct,
+        float(api_cost)    if api_cost    is not None else None,
+        float(api_latency) if api_latency is not None else None,
+    )
 
 
 def _load_gt_store_names() -> list[str]:
@@ -575,20 +490,28 @@ def structure(ocr_text: str, image_path: Path, user_name: str,
     start = time.monotonic()
     try:
         if resolved_provider == "clod":
-            result, pt, ct, api_cost = _structure_clod(ocr_text, model)
-            latency_ms = (time.monotonic() - start) * 1000
-            if api_cost is not None:
-                cost, cost_source = api_cost, "api"
-            else:
-                cost, cost_source = _estimate_clod_cost(model, pt, ct), "estimate"
+            result, pt, ct, api_cost, api_latency_ms = _structure_clod(ocr_text, model)
+            local_latency_ms = (time.monotonic() - start) * 1000
+            latency_ms, latency_source = (
+                (api_latency_ms, "api") if api_latency_ms is not None
+                else (local_latency_ms, "local")
+            )
+            cost, cost_source = (
+                (api_cost, "api") if api_cost is not None
+                else (_estimate_clod_cost(model, pt, ct), "estimate")
+            )
         else:
             result, pt, ct, gen_id = _structure_openrouter(ocr_text, model)
-            latency_ms = (time.monotonic() - start) * 1000
-            api_cost = _fetch_openrouter_cost(gen_id)
-            if api_cost is not None:
-                cost, cost_source = api_cost, "api"
-            else:
-                cost, cost_source = _estimate_openrouter_cost(model, pt, ct), "estimate"
+            local_latency_ms = (time.monotonic() - start) * 1000
+            gen = _fetch_openrouter_generation(gen_id)
+            latency_ms, latency_source = (
+                (gen["latency_ms"], "api") if gen["latency_ms"] is not None
+                else (local_latency_ms, "local")
+            )
+            cost, cost_source = (
+                (gen["cost"], "api") if gen["cost"] is not None
+                else (_estimate_openrouter_cost(model, pt, ct), "estimate")
+            )
 
         # Inject caller-controlled fields
         result["imageName"] = image_path.name
@@ -602,13 +525,13 @@ def structure(ocr_text: str, image_path: Path, user_name: str,
 
         log_llm(run_id, image_path.name, user_name, resolved_provider, model,
                 pt, ct, cost, latency_ms, len(result.get("items", [])), True,
-                cost_source=cost_source)
+                cost_source=cost_source, latency_source=latency_source)
         return result
 
     except Exception as e:
-        latency_ms = (time.monotonic() - start) * 1000
+        local_latency_ms = (time.monotonic() - start) * 1000
         log_llm(run_id, image_path.name, user_name, resolved_provider, model,
-                0, 0, 0.0, latency_ms, 0, False, str(e))
+                0, 0, 0.0, local_latency_ms, 0, False, str(e), latency_source="local")
         raise
 
 
@@ -808,7 +731,7 @@ def main():
                    choices=["openrouter", "clod"],
                    help="LLM provider (default: LLM_PROVIDER env var)")
     p.add_argument("--model",     default=None,
-                   help="Model ID — defaults to OR_DEFAULT_MODEL env var or provider default")
+                   help="Model ID — defaults to OR_DEFAULT_MODEL or CLOD_DEFAULT_MODEL env var")
     p.add_argument("--no-upload",         action="store_true", help="Skip SDK upload")
     p.add_argument("--report",            action="store_true", help="Generate usage report")
     p.add_argument("--compare",           action="store_true",
@@ -819,8 +742,11 @@ def main():
                    help="Generate structured baseline experiment report")
     args = p.parse_args()
 
-    # Resolve model: CLI > provider default (when --provider explicit) > env > global default
-    resolved_model = args.model or _DEFAULT_MODELS.get(args.provider) or os.getenv("OR_DEFAULT_MODEL") or DEFAULT_MODEL
+    # Resolve model: CLI flag > .env default for provider
+    if args.provider == "clod":
+        resolved_model = args.model or CLOD_DEFAULT_MODEL
+    else:
+        resolved_model = args.model or OR_DEFAULT_MODEL
 
     if args.report:
         report(); return
