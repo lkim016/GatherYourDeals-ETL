@@ -1,9 +1,9 @@
 # GatherYourDeals-ETL
 
-Two-step receipt pipeline that reads a photo of a receipt and produces structured JSON, orchestrated as a [Railtracks](https://railtracks.org/) Flow.
+Receipt digitization pipeline exposed as a REST service. Accepts a receipt image and returns structured line-item JSON via OCR + LLM, orchestrated as a [Railtracks](https://railtracks.org/) Flow.
 
 ```
-Receipt photo  (JPG / PNG / WEBP / HEIC / TIFF / BMP)
+POST /etl  { "source": "<image URL or local path>" }
     │
     ▼  Step 1 — Azure Document Intelligence  (prebuilt-read)
     │           Extracts all text from the image via OCR
@@ -11,13 +11,11 @@ Receipt photo  (JPG / PNG / WEBP / HEIC / TIFF / BMP)
     ▼  Step 2 — LLM  (OpenRouter  /  CLOD)
     │           Structures the OCR text into the GYD JSON format
     │
-    ▼  Step 2b — Store Name Normalization  (second LLM call)
-    │           Matches raw store name to canonical entry in ground_truth/ corpus
-    │
     ▼  Step 3 — Azure Maps Geocoding  (optional)
     │           Resolves store address → latitude / longitude
     │
-    ▼  output/<provider>/<image-name>.json  +  optional upload to GYD data service
+    ▼  Step 4 — GYD Upload
+                Uploads structured items to the GYD data service via SDK
 ```
 
 **Baseline (9 receipts, 2026-03-30):** 9/9 OpenRouter · 9/9 CLOD · $0.1921 total (last run) · OpenRouter $0.0038/receipt · CLOD $0.0003/receipt
@@ -29,11 +27,10 @@ Receipt photo  (JPG / PNG / WEBP / HEIC / TIFF / BMP)
 ### 1. Install dependencies
 
 ```bash
-pip install openai python-dotenv azure-ai-documentintelligence
-pip install "railtracks[cli]"
-pip install git+https://github.com/yuewang199511/GatherYourDeals-SDK.git
-pip install matplotlib              # optional — for --report charts
-pip install pillow pillow-heif      # optional — only for HEIC (iPhone) photos
+pip install -r requirements.txt
+pip install "railtracks[cli]"      # optional — flow observability
+pip install pillow pillow-heif     # optional — only for HEIC (iPhone) photos
+pip install matplotlib             # optional — for --report charts
 ```
 
 > Azure Maps geocoding uses Python's built-in `urllib` — no extra package needed.
@@ -73,7 +70,26 @@ If `AZURE_MAPS_KEY` is not set, lat/lon will be `null` in the output.
 2. Choose **Gen2** pricing tier (free: 5,000 geocode requests/month)
 3. After deployment: **Authentication** → copy **Primary Key**
 
-### 5. Configure `.env`
+### 5. GYD data service token
+
+The ETL uploads structured receipts to the GYD data service using a JWT access token — no username/password needed.
+
+```bash
+# One-time login via the GYD CLI
+gatherYourDeals login
+
+# Print your current access token and copy it into .env
+gatherYourDeals show-token
+```
+
+```env
+GYD_SERVER_URL=http://localhost:8080/api/v1
+GYD_ACCESS_TOKEN=<paste token here>
+```
+
+> The token is initialized **per request** (no shared client). If `GYD_ACCESS_TOKEN` is not set, the SDK falls back to tokens auto-loaded from `~/.GYD_SDK/env.yaml` stored by the CLI login.
+
+### 6. Configure `.env`
 
 ```bash
 cp .env.example .env
@@ -100,13 +116,149 @@ AZURE_MAPS_KEY=<your-key>
 
 # GYD data service — leave blank to run in extract-only mode
 GYD_SERVER_URL=http://localhost:8080/api/v1
-GYD_USERNAME=
-GYD_PASSWORD=
+# JWT access token: run `gatherYourDeals login` then `gatherYourDeals show-token`
+GYD_ACCESS_TOKEN=
+
+# ETL service username written into receipt JSON metadata
+ETL_DEFAULT_USER=lkim
 ```
 
 ---
 
-## Usage
+## Running as a Service
+
+Start the ETL service with uvicorn:
+
+```bash
+uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/etl` | Run the full ETL pipeline from a remote image address |
+| `GET` | `/health` | Liveness check |
+
+Interactive API docs available at `http://localhost:8000/docs` once running.
+
+### Example request
+
+```bash
+curl -X POST http://localhost:8000/etl \
+  -H "Content-Type: application/json" \
+  -d '{"source": "https://example.com/receipts/2026-01-03Costco.jpg"}'
+```
+
+The `source` field accepts any image address — HTTP/HTTPS URL or local file path.
+
+### Response
+
+```json
+{ "success": true, "message": "ETL completed successfully" }
+```
+
+| Status | Meaning |
+|--------|---------|
+| `200` | Pipeline + upload completed successfully |
+| `400` | Empty source, unreachable URL, or unsupported file type |
+| `422` | Source reachable but OCR / LLM processing failed |
+| `500` | Upload to GYD service failed |
+
+### Deploy to Railway
+
+Push to GitHub — Railway auto-detects the `Procfile` and deploys:
+
+```
+web: uvicorn app:app --host 0.0.0.0 --port $PORT
+```
+
+Set your environment variables (`AZURE_DI_ENDPOINT`, `AZURE_DI_KEY`, `OPENROUTER_API_KEY`, etc.) in the Railway dashboard under **Variables**.
+
+---
+
+## Infrastructure
+
+### Docker (local)
+
+```bash
+# Build and start
+docker compose up --build
+
+# Run in background
+docker compose up -d
+
+# Stop
+docker compose down
+```
+
+The service starts on `http://localhost:8080`. Logs and output are mounted as volumes so they persist outside the container.
+
+### Docker (manual)
+
+```bash
+docker build -t gyd-etl .
+docker run -p 8080:8080 --env-file .env gyd-etl
+```
+
+### Deploy to Azure Container Apps
+
+Requires [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) and Docker Desktop running locally.
+
+```bash
+# One-time login
+az login
+
+# First deploy (~3 min — builds image, creates Container App, returns public URL)
+bash deploy.sh
+
+# Redeploy after code changes
+bash deploy.sh --update
+```
+
+`deploy.sh` reads your `.env` and passes all keys as environment variables to the Container App. No Terraform needed.
+
+> **Cost**: Azure Container Apps free grant covers 180,000 vCPU-seconds/month — enough to run the service continuously. An Azure Container Registry (Basic) is created automatically at ~$0.17/day; covered by student credits.
+
+### After deploying
+
+**1. Verify it's live:**
+```bash
+curl https://<your-app>.<region>.azurecontainerapps.io/health
+# → {"status": "ok"}
+```
+
+**2. Test with a real receipt:**
+```bash
+curl -X POST https://<your-app>.<region>.azurecontainerapps.io/etl \
+  -H "Content-Type: application/json" \
+  -d '{"source": "https://<your-storage>/receipts/2026-01-03Costco.jpg"}'
+```
+
+**3. Run Experiment 1 against the live service** — concurrent HTTP requests to `/etl`, no mock needed:
+```bash
+python experiments/exp1_worker_scaling.py --live https://<your-url>/etl
+```
+
+---
+
+### Scale workers locally
+
+```bash
+# Run 4 container instances behind a single port (requires a load balancer)
+docker compose up --scale etl=4
+```
+
+Or use uvicorn's built-in worker pool (single container, multiple processes):
+
+```bash
+docker run -p 8080:8080 --env-file .env gyd-etl \
+  uvicorn app:app --host 0.0.0.0 --port 8080 --workers 4
+```
+
+---
+
+## Usage (CLI)
 
 ```bash
 # Single receipt
@@ -122,7 +274,7 @@ python etl.py Receipts/ --user $GYD_USERNAME --provider clod --no-upload
 python etl.py Receipts/ --user $GYD_USERNAME
 
 # Full baseline experiment (both providers, 3× each)
-bash run_baseline.sh
+bash scripts/run_baseline.sh
 
 # Generate baseline experiment report (last run only)
 python etl.py --baseline-report
@@ -198,80 +350,6 @@ Overall 0–100 score (50% scalar fields, 50% item accuracy) saved to `reports/`
 
 ---
 
-## Logging
-
-Structured JSON logs are written to `logs/etl_YYYY-MM-DD.jsonl` — one line per event.
-All entries share: `time`, `level`, `service`, `event`, `trace_id`, `user_id`, `image_name`.
-
-**`adi_ocr`**
-```json
-{
-  "event": "adi_ocr",
-  "ocr_latency_ms": 4936.0,
-  "ocr_success": true,
-  "pages": 1,
-  "chars_extracted": 1842,
-  "cost_usd": 0.0015
-}
-```
-
-> `cost_usd` is always logged at the S0 rate ($0.0015/page) for accurate production cost tracking, regardless of free tier usage.
-
-**`llm_extraction`**
-```json
-{
-  "event": "llm_extraction",
-  "llm_provider": "openrouter",
-  "llm_model": "anthropic/claude-haiku-4.5",
-  "llm_latency_ms": 6985.0,
-  "llm_input_tokens": 997,
-  "llm_output_tokens": 674,
-  "llm_cost_usd": 0.003276,
-  "llm_cost_source": "estimate",
-  "llm_success": true,
-  "items_extracted": 7
-}
-```
-
-> `llm_cost_source` is `"api"` when the provider returns a billed cost, `"estimate"` when falling back to token-based pricing.
-
-**`pipeline_complete`**
-```json
-{
-  "event": "pipeline_complete",
-  "llm_provider": "openrouter",
-  "llm_model": "anthropic/claude-haiku-4.5",
-  "total_latency_ms": 12847.0,
-  "success": true
-}
-```
-
-> End-to-end wall time per receipt — covers OCR + LLM + geocoding. Used to compute E2E P50/P95 in `--baseline-report`.
-
-**`mcp_upload`**
-```json
-{
-  "event": "mcp_upload",
-  "endpoint": "POST /api/v1/receipts",
-  "status": 201,
-  "latency_ms": 45.0,
-  "items_attempted": 7,
-  "items_uploaded": 7,
-  "items_failed": 0
-}
-```
-
-`reporting.py` can also be run directly:
-
-```bash
-python reporting.py --baseline-report
-python reporting.py --report
-python reporting.py --compare
-python reporting.py --eval
-```
-
----
-
 ## Observability — Railtracks
 
 The pipeline runs as a Railtracks Flow (`receipt_etl`). Railtracks provides a local browser UI to inspect per-receipt run timelines and pass/fail history.
@@ -305,8 +383,8 @@ railtracks viz
 |---|---|---|
 | E2E duration per receipt | ✓ | ✓ (`total_latency_ms`) |
 | Pass / fail per run | ✓ | ✓ (`llm_success`) |
-| Cost per receipt | — | ✓ (`llm_cost_usd`) |
-| Token counts | — | ✓ (`llm_input_tokens`, `llm_output_tokens`) |
+| Cost per receipt | ✓ (`cost.total_usd`) | ✓ (`llm_cost_usd`) |
+| Token counts | ✓ (`usage.*_tokens`) | ✓ (`llm_input_tokens`, `llm_output_tokens`) |
 | OCR vs LLM latency split | — | ✓ (`ocr_latency_ms`, `llm_latency_ms`) |
 
 ---
@@ -327,33 +405,57 @@ railtracks viz
 ## Project structure
 
 ```
-etl.py                  # Main pipeline script (ADI OCR → LLM → geocode → upload)
-reporting.py            # Reporting module (--baseline-report, --report, --compare, --eval)
-run_baseline.sh         # Baseline experiment script (3× per provider)
+# Service
+app.py                  # FastAPI service — POST /etl, GET /health
+openapi.yaml            # OpenAPI 3.0.3 schema for the ETL service
+etl.py                  # Core pipeline (ADI OCR → LLM → geocode → GYD upload)
+etl_logger.py           # Structured JSONL logging
+upload_registry.py      # Upload ID registry shared by etl.py and scripts/
+reporting.py            # Reporting (--baseline-report, --report, --compare, --eval)
+
+# Infrastructure
+Dockerfile              # Container image definition
+docker-compose.yml      # Local multi-container setup with volume mounts
+.dockerignore           # Excludes venv, receipts, logs from image
+deploy.sh               # Azure Container Apps deploy script
+Procfile                # Railway deploy config
+
+# Config
 .env.example            # Environment variable template
 requirements.txt        # Python dependencies
-Receipts/               # Input receipt images (9 receipts)
-ground_truth/           # Manually-verified reference JSON for each receipt
+
+# Data (git-ignored)
+Receipts/               # Input receipt images
+ground_truth/           # Manually-transcribed reference JSON for each receipt
 output/
-  openrouter/           # Output JSON from OpenRouter runs
-  clod/                 # Output JSON from CLOD runs
+  openrouter-claude-haiku-4.5/     # Output JSON from OpenRouter runs
+  clod-qwen2.5-7b-instruct-turbo/  # Output JSON from CLOD/Qwen runs
+  clod-gemma-3n-e4b-it/            # Output JSON from CLOD/Gemma runs
+  .upload_registry.json            # Maps image stem → uploaded GYD receipt UUIDs
 logs/                   # JSONL structured logs (etl_YYYY-MM-DD.jsonl) + Railtracks rt.log
-reports/                # Markdown reports + usage charts
+reports/                # Experiment results (Drafts/ and provider-charts/ are git-ignored)
+
+# Scripts
+scripts/
+  run_baseline.sh           # Baseline experiment (3 providers × 3 runs)
+  delete_receipts.py        # Personal utility — delete test uploads from GYD database
+
+# Experiments
+experiments/
+  exp1_worker_scaling.py    # Experiment 1 — worker parallelism vs. throughput
+
+# Docs
 docs/
-  HW9Report.md              # CS6650 HW9 report — problem, methodology, results
-  setup-azure-di.md         # Azure DI setup guide
-  llm-provider-setup.md     # LLM provider config + model change log
+  CHANGELOG.md                    # Change log
+  distributed_system_proposal.md  # CS6650 final project proposal
+  setup-azure-di.md               # Azure DI setup guide
+  llm-provider-setup.md           # LLM provider config + model change log
 ```
 
 ---
 
 ## Remote storage
 
-Receipt images are tracked via Git LFS (configured in `.gitattributes`).
+Receipt images and large output files are stored on SharePoint:
 
-```bash
-git lfs install        # once per machine
-git add Receipts/ output/ logs/
-git commit -m "receipts YYYY-MM-DD"
-git push
-```
+https://northeastern-my.sharepoint.com/my?id=%2Fpersonal%2Fkim%5Flor%5Fnortheastern%5Fedu%2FDocuments%2FCS6650%20Project&viewid=a5263e9e%2D3e9c%2D4313%2Db199%2De7d2b9d70fc6&startedResponseCatch=true

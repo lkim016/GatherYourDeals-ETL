@@ -70,6 +70,15 @@ def log_llm(trace_id, image_name, user_id, provider, model,
         "llm_success":         success,
         "items_extracted":     items_extracted,
         "error":               error,
+        # Standardized usage block read by Railtracks / AgentHub observability.
+        "usage": {
+            "input_tokens":  input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens":  (input_tokens or 0) + (output_tokens or 0),
+        },
+        "cost": {
+            "total_usd": round(cost_usd, 8),
+        },
     })
 
 
@@ -108,6 +117,27 @@ def log_upload(trace_id, image_name, user_id,
         "latency_ms":      round(latency_ms, 1),
         "items_attempted": attempted,
         "items_uploaded":  uploaded,
+        "items_failed":    failed,
+        "error":           error,
+    })
+
+
+def log_delete(trace_id, image_name, user_id,
+               attempted, deleted, failed, latency_ms, success, error=None):
+    """Log one GYD SDK delete batch."""
+    _log({
+        "time":            datetime.now(timezone.utc).isoformat(),
+        "level":           "INFO" if success else "WARN",
+        "service":         "etl",
+        "event":           "mcp_delete",
+        "trace_id":        trace_id,
+        "user_id":         user_id,
+        "image_name":      image_name,
+        "endpoint":        "DELETE /api/v1/receipts/{id}",
+        "status":          200 if success else None,
+        "latency_ms":      round(latency_ms, 1),
+        "items_attempted": attempted,
+        "items_deleted":   deleted,
         "items_failed":    failed,
         "error":           error,
     })

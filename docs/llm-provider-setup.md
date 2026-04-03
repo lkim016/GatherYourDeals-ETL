@@ -8,13 +8,12 @@ This document covers:
 
 ## Providers
 
-The ETL supports two LLM providers for Step 2 (OCR text → structured JSON).
-Select one via the `LLM_PROVIDER` environment variable or the `--provider` CLI flag.
+The ETL supports two provider backends for Step 2 (OCR text → structured JSON), with multiple models per backend. Select provider via `LLM_PROVIDER` env var or `--provider` CLI flag; select model via `--model` or the per-provider default env vars.
 
-| Provider | Env var | Default model | Cost |
-|----------|---------|---------------|------|
-| OpenRouter | `OPENROUTER_API_KEY` | `anthropic/claude-haiku-4.5` | ~$0.004/receipt |
-| CLOD | `CLOD_API_KEY` | `Qwen/Qwen2.5-7B-Instruct-Turbo` | ~$0.0004/receipt (sponsored) |
+| Provider | Env var | Models | Approx cost |
+|----------|---------|--------|-------------|
+| OpenRouter | `OPENROUTER_API_KEY` | `anthropic/claude-haiku-4.5` _(default)_ | ~$0.0038/receipt |
+| CLOD | `CLOD_API_KEY` | `Qwen/Qwen2.5-7B-Instruct-Turbo` _(default)_, `google/gemma-3n-E4B-it` | ~$0.0003/receipt (Qwen); Gemma cost from API |
 
 ---
 
@@ -33,7 +32,8 @@ OR_DEFAULT_MODEL=anthropic/claude-haiku-4.5
 # Step 2b — CLOD  (set LLM_PROVIDER=clod to use)
 # Sign up at app.clod.io → API Keys → Create Key
 # CLOD_API_KEY=<your-key>
-# OR_DEFAULT_MODEL=Qwen/Qwen2.5-7B-Instruct-Turbo
+# CLOD_DEFAULT_MODEL=Qwen/Qwen2.5-7B-Instruct-Turbo
+# CLOD_DEFAULT_MODEL=google/gemma-3n-E4B-it    ← alternative
 ```
 
 ---
@@ -47,8 +47,11 @@ python3 etl.py receipt.jpg --user $GYD_USERNAME --no-upload
 # OpenRouter with explicit model
 python3 etl.py receipt.jpg --user $GYD_USERNAME --provider openrouter --model anthropic/claude-haiku-4.5 --no-upload
 
-# CLOD
+# CLOD / Qwen
 python3 etl.py receipt.jpg --user $GYD_USERNAME --provider clod --model Qwen/Qwen2.5-7B-Instruct-Turbo --no-upload
+
+# CLOD / Gemma
+python3 etl.py receipt.jpg --user $GYD_USERNAME --provider clod --model google/gemma-3n-E4B-it --no-upload
 
 # Whole directory
 python3 etl.py Receipts/ --user $GYD_USERNAME --no-upload
@@ -96,6 +99,7 @@ for m in sorted(data['data'], key=lambda x: x['id']):
 |-------|----------|----------------|-----------------|-------|
 | `anthropic/claude-haiku-4.5` | OpenRouter | $1.00 | $5.00 | Current default |
 | `Qwen/Qwen2.5-7B-Instruct-Turbo` | CLOD | $0.30 | $0.12 | 60% discount applied; output dynamically priced, cap ~$0.318/M |
+| `google/gemma-3n-E4B-it` | CLOD | — | — | Cost sourced from API response; no published rate card |
 | `google/gemini-2.0-flash` | OpenRouter | $0.10 | $0.40 | |
 | `openai/gpt-4o-mini` | OpenRouter | $0.15 | $0.60 | |
 

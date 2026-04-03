@@ -1,3 +1,6 @@
+fastapi>=0.110.0                    # ETL service API
+uvicorn>=0.29.0                    # ASGI server
+python-multipart>=0.0.9            # multipart/form-data for file uploads
 openai>=1.30.0                      # OpenAI-compatible client for OpenRouter (Step 2)
 python-dotenv>=1.0.0               # .env loading
 azure-ai-documentintelligence>=1.0.0  # Azure Document Intelligence SDK (Step 1)

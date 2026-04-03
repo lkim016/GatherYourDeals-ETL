@@ -2,13 +2,15 @@
 # =============================================================================
 # GatherYourDeals ETL — Baseline Experiment (Provider Egress Comparison)
 # =============================================================================
-# Measures egress characteristics of all three pipeline providers:
+# Measures egress characteristics of all pipeline providers:
 #   1. Azure Document Intelligence (OCR)           — runs with every batch
 #   2. OpenRouter / claude-haiku-4.5               — primary LLM provider
 #   3. CLOD / Qwen2.5-7B-Instruct-Turbo            — alternative LLM provider
+#   4. CLOD / gemma-3n-E4B-it                      — alternative LLM provider
+#   5. OpenRouter / qwen-2.5-7b-instruct           — alternative LLM provider
 #
-# Each provider is run 3× (30 data points per provider) for statistically
-# meaningful P50/P95 latency and cost/receipt averages.
+# Each provider is run 3× for statistically meaningful P50/P95 latency
+# and cost/receipt averages.
 #
 # Findings produced:
 #   - Baseline P50/P95 latency per provider (ADI + LLM)
@@ -21,8 +23,8 @@
 #   logs/etl_<date>.jsonl     — raw event log (one line per provider call)
 #   reports/baseline_<ts>.md  — structured provider comparison report
 #
-# Usage:
-#   bash run_baseline.sh
+# Usage (run from the project root):
+#   bash scripts/run_baseline.sh
 #
 # Prerequisites:
 #   - .env configured with OPENROUTER_API_KEY, CLOD_API_KEY, AZURE_DI_KEY
@@ -33,6 +35,15 @@
 # =============================================================================
 
 set -e
+
+# Always run from the project root so relative paths (Receipts/, logs/, etc.) resolve correctly.
+cd "$(dirname "$0")/.."
+
+# Helper: run a provider block and continue even if it fails (so one flaky
+# provider doesn't abort the whole experiment).
+run_or_warn() {
+    "$@" || echo "[baseline] WARNING: command failed (exit $?), continuing…" >&2
+}
 
 USER="lkim"
 RECEIPTS="Receipts/"
@@ -51,33 +62,31 @@ echo "Receipt count   : $(ls $RECEIPTS*.jpg 2>/dev/null | wc -l | tr -d ' ')"
 echo ""
 
 # -----------------------------------------------------------------------------
-# Runs 1–3 — OpenRouter (Primary LLM provider)
-# 3 runs × 10 receipts = 30 data points for statistically meaningful P50/P95.
-# Azure DI OCR runs automatically as Step 1 of every ETL call.
+# Runs 1–3 — OpenRouter (Primary LLM provider)  [COMMENTED OUT — preserve credits]
 # -----------------------------------------------------------------------------
-for i in 1 2 3; do
-    echo "------------------------------------------------------------"
-    echo " OpenRouter run $i/3 — claude-haiku-4.5"
-    echo " Measures: ADI egress latency + OpenRouter egress latency/cost"
-    echo "------------------------------------------------------------"
-    python3 etl.py "$RECEIPTS" \
-        --user "$USER" \
-        --provider openrouter \
-        --model anthropic/claude-haiku-4.5 \
-        --no-upload
-    echo ""
-done
+# for i in 1; do
+#     echo "------------------------------------------------------------"
+#     echo " OpenRouter run $i/3 — claude-haiku-4.5"
+#     echo " Measures: ADI egress latency + OpenRouter egress latency/cost"
+#     echo "------------------------------------------------------------"
+#     run_or_warn venv/bin/python etl.py "$RECEIPTS" \
+#         --user "$USER" \
+#         --provider openrouter \
+#         --model anthropic/claude-haiku-4.5 \
+#         --no-upload
+#     echo ""
+# done
 
 # -----------------------------------------------------------------------------
 # Runs 4–6 — CLOD (Alternative LLM provider)
 # 3 runs × 10 receipts = 30 data points for statistically meaningful P50/P95.
 # -----------------------------------------------------------------------------
-for i in 1 2 3; do
+for i in 1; do
     echo "------------------------------------------------------------"
     echo " CLOD run $i/3 — Qwen2.5-7B-Instruct-Turbo"
     echo " Measures: ADI egress latency + CLOD egress latency/cost"
     echo "------------------------------------------------------------"
-    python3 etl.py "$RECEIPTS" \
+    run_or_warn venv/bin/python etl.py "$RECEIPTS" \
         --user "$USER" \
         --provider clod \
         --model Qwen/Qwen2.5-7B-Instruct-Turbo \
@@ -88,12 +97,44 @@ done
 echo ""
 
 # -----------------------------------------------------------------------------
+# Runs 7–9 — CLOD / gemma-3n-E4B-it (second alternative LLM provider)
+# -----------------------------------------------------------------------------
+for i in 1; do
+    echo "------------------------------------------------------------"
+    echo " CLOD run $i/3 — gemma-3n-E4B-it"
+    echo " Measures: ADI egress latency + CLOD egress latency/cost"
+    echo "------------------------------------------------------------"
+    run_or_warn venv/bin/python etl.py "$RECEIPTS" \
+        --user "$USER" \
+        --provider clod \
+        --model google/gemma-3n-E4B-it \
+        --no-upload
+    echo ""
+done
+
+# -----------------------------------------------------------------------------
+# Runs 10–12 — OpenRouter / qwen-2.5-7b-instruct  [COMMENTED OUT — preserve credits]
+# -----------------------------------------------------------------------------
+# for i in 1; do
+#     echo "------------------------------------------------------------"
+#     echo " OpenRouter run $i/3 — qwen/qwen-2.5-7b-instruct"
+#     echo " Measures: ADI egress latency + OpenRouter egress latency/cost"
+#     echo "------------------------------------------------------------"
+#     run_or_warn venv/bin/python etl.py "$RECEIPTS" \
+#         --user "$USER" \
+#         --provider openrouter \
+#         --model qwen/qwen-2.5-7b-instruct \
+#         --no-upload
+#     echo ""
+# done
+
+# -----------------------------------------------------------------------------
 # Generate baseline experiment report
 # -----------------------------------------------------------------------------
 echo "------------------------------------------------------------"
 echo " Generating baseline experiment report"
 echo "------------------------------------------------------------"
-python3 etl.py --baseline-report
+venv/bin/python etl.py --baseline-report
 
 echo ""
 echo "============================================================"

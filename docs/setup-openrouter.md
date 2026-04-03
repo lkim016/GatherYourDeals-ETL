@@ -2,7 +2,7 @@
 
 OpenRouter provides access to many LLMs through a single API. This project uses it for
 Step 2 of the ETL pipeline — structuring raw OCR text into JSON.
-The default model is on the **free tier**: no credit card required.
+The default model is `anthropic/claude-haiku-4.5` (paid tier — ~$0.0038/receipt).
 
 ---
 
@@ -39,7 +39,7 @@ Open `.env` and fill in:
 
 ```
 OPENROUTER_API_KEY=sk-or-v1-your-key-here
-OR_DEFAULT_MODEL=google/gemini-2.0-flash-exp:free
+OR_DEFAULT_MODEL=anthropic/claude-haiku-4.5
 ```
 
 ---
@@ -60,7 +60,7 @@ client = OpenAI(
     base_url='https://openrouter.ai/api/v1'
 )
 r = client.chat.completions.create(
-    model='google/gemini-2.0-flash-exp:free',
+    model='anthropic/claude-haiku-4.5',
     messages=[{'role': 'user', 'content': 'Reply with the word OK only.'}]
 )
 print(r.choices[0].message.content)
@@ -86,14 +86,17 @@ For 7 receipts in the incubation stage this is well within limits.
 
 ---
 
-## Available free models
+## Model options
 
 | Model | Notes |
 |-------|-------|
-| `google/gemini-2.0-flash-exp:free` | **Default** — best accuracy for receipt structuring |
-| `meta-llama/llama-3.2-11b-vision-instruct:free` | Backup option |
+| `anthropic/claude-haiku-4.5` | **Current default** — best accuracy for receipt structuring |
+| `google/gemini-2.0-flash` | Good alternative, lower cost |
+| `openai/gpt-4o-mini` | Reliable fallback |
 
-To see all currently available free models, go to **openrouter.ai/models** and filter by **Free**.
+> `google/gemini-2.0-flash-exp:free` was retired in March 2026 and is no longer available.
+
+To see all currently free models, go to **openrouter.ai/models** and filter by **Free**.
 
 ---
 

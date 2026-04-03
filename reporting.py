@@ -361,12 +361,12 @@ def compare():
         "",
         "## What Each Model Represents",
         "",
-        "| Model | Role |",
-        "|-------|------|",
-        "| claude-3-haiku (OR) | Free baseline — throughput ceiling at $0 |",
-        "| llama-3.3-70b:free (OR) | Free open-source — does size improve correctness? |",
-        "| claude-haiku-4.5 (OR) | Paid new-gen — does paying improve latency or correctness? |",
-        "| Qwen3-235B (CLOD) | Alternative provider — viable fallback? At what latency cost? |",
+        "| Model | Provider | Role |",
+        "|-------|----------|------|",
+        "| anthropic/claude-haiku-4.5 | OpenRouter | Primary paid LLM — baseline for latency and correctness |",
+        "| qwen/qwen-2.5-7b-instruct | OpenRouter | Low-cost open-source alternative on OR — correctness vs. cost tradeoff |",
+        "| Qwen/Qwen2.5-7B-Instruct-Turbo | CLOD | Same Qwen model via CLOD — provider latency/cost comparison |",
+        "| google/gemma-3n-E4B-it | CLOD | Multimodal-capable alternative — does model family matter at this size? |",
     ]
 
     md_path = REPORTS_DIR / f"compare_{ts}.md"
@@ -499,13 +499,20 @@ def _compute_eval(output_dir: Path = OUTPUT_DIR, gt_dir: Path = GROUND_TRUTH_DIR
 
     for stem, gt_path in sorted(gt_files.items()):
         out_path = output_dir / (stem + ".json")
-        raw_truth  = json.loads(gt_path.read_text(encoding="utf-8"))
+        gt_text = gt_path.read_text(encoding="utf-8").strip()
+        if not gt_text:
+            continue
+        raw_truth  = json.loads(gt_text)
         tru_list   = raw_truth if isinstance(raw_truth, list) else [raw_truth]
         gt_item_count = len(tru_list)
         if not out_path.exists():
             rows.append((stem + ".jpg", gt_item_count, "—", "—", "—", "—", "—", "—", "—", "—", "no output"))
             continue
-        raw_output = json.loads(out_path.read_text(encoding="utf-8"))
+        out_text = out_path.read_text(encoding="utf-8").strip()
+        if not out_text:
+            rows.append((stem + ".jpg", gt_item_count, "—", "—", "—", "—", "—", "—", "—", "—", "empty output"))
+            continue
+        raw_output = json.loads(out_text)
         out_list   = raw_output if isinstance(raw_output, list) else [raw_output]
         s = _score_receipt(out_list, tru_list)
         scores.append(s["overall"])
@@ -580,11 +587,13 @@ def eval_receipts(output_dir: Path = OUTPUT_DIR, gt_dir: Path = GROUND_TRUTH_DIR
 # ---------------------------------------------------------------------------
 def baseline_report():
     """
-    Generate a single structured baseline experiment report covering all three
-    pipeline providers: Azure DI (OCR), OpenRouter (LLM), CLOD (LLM).
+    Generate a single structured baseline experiment report covering all
+    pipeline providers: Azure DI (OCR) + all LLM providers run during the
+    experiment (OpenRouter/claude-haiku-4.5, OpenRouter/qwen-2.5-7b-instruct,
+    CLOD/Qwen2.5-7B-Instruct-Turbo, CLOD/gemma-3n-E4B-it).
 
-    Scoped to today's log file only so historical runs don't pollute the report.
-    Saved to reports/baseline_<ts>.md
+    Scoped to the experiment window (.baseline_start) so historical runs
+    don't pollute the report. Saved to reports/baseline_<ts>.md
     """
     # Load start timestamp written by run_baseline.sh
     start_file = Path(".baseline_start")
@@ -615,22 +624,32 @@ def baseline_report():
     # A complete trace_id covers all receipts in the experiment (count >= receipt_count).
     # Single-receipt ad-hoc runs that happen to fall inside the experiment window are excluded.
     _RUNS_PER_PROVIDER = 3
-    _receipts_in_dir = len([f for f in Path("Receipts").iterdir()
-                             if f.suffix.lower() in IMAGE_EXTS]) if Path("Receipts").exists() else 9
-    _trace_prov: dict[str, str] = {}
+    _trace_prov_model: dict[str, tuple[str, str]] = {}
     _trace_cnt:  dict[str, int] = defaultdict(int)
     _trace_last: dict[str, str] = defaultdict(str)
     for e in llm_entries:
         tid = e.get("trace_id", "")
-        _trace_prov[tid] = e.get("llm_provider", "?")
+        _trace_prov_model[tid] = (e.get("llm_provider", "?"), e.get("llm_model", "?"))
         _trace_cnt[tid] += 1
         t = e.get("time", "")
         if t > _trace_last[tid]:
             _trace_last[tid] = t
-    _complete_by_prov: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    # Threshold = modal count across all traces (the most common run size).
+    # This handles Receipts/ containing more files than were actually processed
+    # (e.g. images without ground truth, or new receipts added after the run).
+    if _trace_cnt:
+        from statistics import mode as _mode
+        try:
+            _receipts_in_dir = _mode(_trace_cnt.values())
+        except Exception:
+            _receipts_in_dir = max(_trace_cnt.values())
+    else:
+        _receipts_in_dir = 1
+    # Group by (provider, model) so multiple models on the same provider each get 3 runs
+    _complete_by_prov: dict[tuple, list[tuple[str, str]]] = defaultdict(list)
     for tid, cnt in _trace_cnt.items():
         if cnt >= _receipts_in_dir:
-            _complete_by_prov[_trace_prov[tid]].append((_trace_last[tid], tid))
+            _complete_by_prov[_trace_prov_model[tid]].append((_trace_last[tid], tid))
     _valid_tids: set[str] = set()
     for _plist in _complete_by_prov.values():
         _plist.sort(reverse=True)
@@ -749,26 +768,32 @@ def baseline_report():
     findings = []
     if len(provider_rows) >= 2:
         r = provider_rows
-        faster = min(r, key=lambda x: float(x["e2e_p50"].replace(",", "")) if x["e2e_p50"] != "—" else float(x["p50_lat"].replace(",", "")))
+        faster  = min(r, key=lambda x: float(x["e2e_p50"].replace(",", "")) if x["e2e_p50"] != "—" else float(x["p50_lat"].replace(",", "")))
         cheaper = min(r, key=lambda x: float(x["cost_per"].replace("$", "")))
-        other = [x for x in r if x != faster][0]
-        findings.append(f"- **Lower E2E p50 latency:** {faster['provider']} / {faster['model']} "
-                        f"({faster['e2e_p50']} ms vs {other['e2e_p50']} ms)")
-        findings.append(f"- **Throughput:** {faster['provider']} ~{faster['throughput']} vs "
-                        f"{other['provider']} ~{other['throughput']}")
+        others  = [x for x in r if x != faster]
+
+        # Latency ranking — show all providers sorted by E2E P50
+        sorted_r = sorted(r, key=lambda x: float(x["e2e_p50"].replace(",", "")) if x["e2e_p50"] != "—" else float(x["p50_lat"].replace(",", "")))
+        latency_list = ", ".join(f"{x['provider']}/{x['model']} {x['e2e_p50']} ms" for x in sorted_r)
+        findings.append(f"- **E2E P50 latency (fastest → slowest):** {latency_list}")
+
+        throughput_list = ", ".join(f"{x['provider']}/{x['model']} ~{x['throughput']}" for x in sorted_r)
+        findings.append(f"- **Throughput:** {throughput_list}")
+
         findings.append(f"- **Lower cost/receipt:** {cheaper['provider']} / {cheaper['model']} "
                         f"({cheaper['cost_per']})")
-        # primary/fallback recommendation
-        primary  = faster
-        fallback = [x for x in r if x != primary][0]
+
+        # Primary = fastest; fallbacks = all others ranked by latency
+        primary = faster
         findings.append(f"- **Recommended primary:** {primary['provider']} / {primary['model']} "
-                        f"— lower egress latency")
-        findings.append(f"- **Recommended fallback:** {fallback['provider']} / {fallback['model']} "
-                        f"— viable alternative if primary is unavailable")
+                        f"— lowest egress latency")
+        for fb in others:
+            findings.append(f"- **Fallback:** {fb['provider']} / {fb['model']} "
+                            f"— viable alternative if primary is unavailable")
     elif len(provider_rows) == 1:
         r = provider_rows[0]
         findings.append(f"- Only one provider run found ({r['provider']} / {r['model']}). "
-                        f"Run both providers to get comparison findings.")
+                        f"Run all providers to get comparison findings.")
 
     # ---- Assemble markdown ----
     md = [
@@ -912,12 +937,19 @@ def baseline_report():
     md += findings if findings else ["- Run both providers to generate findings."]
 
     # ---- Field-level accuracy (eval) — per provider ----
-    provider_dirs = [(row["provider"], OUTPUT_DIR / row["provider"]) for row in provider_rows]
+    def _output_slug(provider: str, model: str) -> str:
+        return f"{provider}-{model.split('/')[-1].lower()}"
+
+    provider_dirs = [
+        (f"{row['provider']} / {row['model'].split('/')[-1]}",
+         OUTPUT_DIR / _output_slug(row["provider"], row["model"]))
+        for row in provider_rows
+    ]
     any_eval = False
     eval_md = ["", "## Field-Level Accuracy", "",
                "Scores each provider's output against ground_truth/ — field by field per receipt.",
-               "Outputs are saved to provider-specific directories (`output/<provider>/`) so each "
-               "provider can be evaluated independently on the same receipts.",
+               "Outputs are saved to model-specific directories (`output/<provider>-<model>/`) so each "
+               "provider/model combination can be evaluated independently on the same receipts.",
                "Scores are computed against all ground-truth items; unmatched slots count as misses "
                "(e.g. if 3 items are extracted vs. 4 expected, the 4th slot scores zero across name, price, and amount).",
                "The **GT items** column shows the expected item count from ground truth for reference.",
@@ -972,63 +1004,66 @@ def baseline_report():
         finding_lines = ["### Quality Finding: Price Extraction by Provider", ""]
         # Overall price match rate per provider
         prov_overall: dict[str, float] = {}
-        prov_models = {row["provider"]: row["model"] for row in provider_rows}
+        # slug -> "provider / model_short" display label
+        slug_labels = {
+            _output_slug(row["provider"], row["model"]): f"{row['provider']} / {row['model'].split('/')[-1]}"
+            for row in provider_rows
+        }
         for prov, pdata in price_stats.items():
             total_num = sum(n for n, _ in pdata.values())
             total_den = sum(d for _, d in pdata.values())
             prov_overall[prov] = total_num / total_den if total_den else 0.0
 
-        # Per-receipt gap detection (>= 30pp gap between any two providers)
-        if len(price_stats) == 2:
-            provs = list(price_stats.keys())
-            common = sorted(set(price_stats[provs[0]]) & set(price_stats[provs[1]]))
-            gap_lines: list[str] = []
+        # Overall price match rate — one bullet per provider, sorted best → worst
+        sorted_provs = sorted(prov_overall, key=lambda p: prov_overall[p], reverse=True)
+        prov_summary = "  \n".join(
+            f"- **{slug_labels.get(p, p)}**: {prov_overall[p]*100:.0f}% overall price match"
+            for p in sorted_provs
+        )
+        finding_lines.append(prov_summary)
+        finding_lines.append("")
+
+        # Per-receipt gap detection — check all pairs of providers
+        from itertools import combinations as _combos
+        gap_lines: list[str] = []
+        seen_gaps: set[str] = set()  # avoid duplicate stems across pairs
+        for prov_a, prov_b in _combos(sorted_provs, 2):
+            common = sorted(set(price_stats[prov_a]) & set(price_stats[prov_b]))
             for stem in common:
-                n0, d0 = price_stats[provs[0]].get(stem, (0, 0))
-                n1, d1 = price_stats[provs[1]].get(stem, (0, 0))
-                r0 = n0 / d0 if d0 else 0.0
-                r1 = n1 / d1 if d1 else 0.0
-                if abs(r0 - r1) >= 0.30:
-                    stronger, weaker = (provs[0], provs[1]) if r0 >= r1 else (provs[1], provs[0])
-                    sr = max(r0, r1); wr = min(r0, r1)
+                na, da = price_stats[prov_a].get(stem, (0, 0))
+                nb, db = price_stats[prov_b].get(stem, (0, 0))
+                ra = na / da if da else 0.0
+                rb = nb / db if db else 0.0
+                if abs(ra - rb) >= 0.30 and stem not in seen_gaps:
+                    seen_gaps.add(stem)
+                    stronger, weaker = (prov_a, prov_b) if ra >= rb else (prov_b, prov_a)
+                    sr = max(ra, rb); wr = min(ra, rb)
                     gap_lines.append(
-                        f"- **{stem}:** {stronger} {sr*100:.0f}% vs {weaker} {wr*100:.0f}%"
+                        f"- **{stem}:** {slug_labels.get(stronger, stronger)} {sr*100:.0f}% "
+                        f"vs {slug_labels.get(weaker, weaker)} {wr*100:.0f}%"
                     )
 
-            # Build summary prose
-            prov_summary = "  \n".join(
-                f"- **{p}** (`{prov_models.get(p, p)}`): {prov_overall[p]*100:.0f}% overall price match"
-                for p in provs
-            )
-            finding_lines.append(prov_summary)
-            finding_lines.append("")
-
-            if gap_lines:
-                weaker_prov = min(prov_overall, key=lambda p: prov_overall[p])
-                stronger_prov = max(prov_overall, key=lambda p: prov_overall[p])
-                finding_lines += [
-                    f"Receipts with a ≥ 30 percentage-point price match gap between providers:",
-                    "",
-                ] + gap_lines + [
-                    "",
-                    f"{weaker_prov} (`{prov_models.get(weaker_prov, weaker_prov)}`) is extracting "
-                    f"per-unit rates or subtotals instead of line-item totals on receipts that use a "
-                    f"multi-column format (e.g. `qty × unit_price = line_total`). "
-                    f"The explicit prompt rule (`price` = right-hand price column) did not resolve this. "
-                    f"This is a model capability gap — {stronger_prov} handles multi-column layouts "
-                    f"correctly because it is a stronger model.",
-                    "",
-                    f"The same layout confusion extends to the `amount` field on Costco: {weaker_prov} "
-                    f"outputs barcode numbers and prices instead of unit quantities (e.g. `6000000000`, `5.49`), "
-                    f"resulting in 0/15 amount match. This is not a ground-truth or prompt change — "
-                    f"it reflects the same model capability gap on multi-column receipts.",
-                ]
-        else:
-            # Single provider — just report the rate
-            for prov, rate in prov_overall.items():
-                finding_lines.append(
-                    f"- **{prov}** (`{prov_models.get(prov, prov)}`): {rate*100:.0f}% overall price match"
-                )
+        if gap_lines:
+            weakest_prov  = min(prov_overall, key=lambda p: prov_overall[p])
+            strongest_prov = max(prov_overall, key=lambda p: prov_overall[p])
+            finding_lines += [
+                "Receipts with a ≥ 30 percentage-point price match gap:",
+                "",
+            ] + gap_lines + [
+                "",
+                f"{slug_labels.get(weakest_prov, weakest_prov)} is extracting "
+                f"per-unit rates or subtotals instead of line-item totals on receipts that use a "
+                f"multi-column format (e.g. `qty × unit_price = line_total`). "
+                f"The explicit prompt rule (`price` = right-hand price column) did not resolve this. "
+                f"This is a model capability gap — {slug_labels.get(strongest_prov, strongest_prov)} "
+                f"handles multi-column layouts correctly because it is a stronger model.",
+                "",
+                f"The same layout confusion extends to the `amount` field on Costco: "
+                f"{slug_labels.get(weakest_prov, weakest_prov)} "
+                f"outputs barcode numbers and prices instead of unit quantities (e.g. `6000000000`, `5.49`), "
+                f"resulting in 0/15 amount match. This is not a ground-truth or prompt change — "
+                f"it reflects the same model capability gap on multi-column receipts.",
+            ]
 
         finding_lines.append("")
         eval_md += finding_lines

@@ -1,0 +1,10 @@
+services:
+  etl:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs       # persist structured JSONL logs
+      - ./output:/app/output   # persist processed receipt JSON
