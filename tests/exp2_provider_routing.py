@@ -81,7 +81,7 @@ class ProviderRouter:
     _LOW_CONFIDENCE_ITEMS = 2  # fewer than this → cost-aware falls back to OR
 
     def __init__(self, strategy: str):
-        if strategy not in ("single", "round-robin", "cost-aware"):
+        if strategy not in ("single", "single-clod", "round-robin", "cost-aware"):
             raise ValueError(f"Unknown strategy: {strategy!r}")
         self.strategy = strategy
         self._rr_counter = itertools.count()   # round-robin sequence
@@ -95,6 +95,10 @@ class ProviderRouter:
         """
         if self.strategy == "single":
             return self._call_openrouter(ocr_text)
+
+        if self.strategy == "single-clod":
+            # All traffic to CLOD — cheapest baseline
+            return self._call_clod(ocr_text)
 
         if self.strategy == "round-robin":
             idx = next(self._rr_counter)
@@ -406,9 +410,10 @@ def main():
         help="Runs per strategy to average (default: 3)",
     )
     parser.add_argument(
-        "--strategy", choices=["single", "round-robin", "cost-aware"],
-        nargs="+", default=["single", "round-robin", "cost-aware"],
-        help="Strategies to test (default: all three)",
+        "--strategy",
+        choices=["single", "single-clod", "round-robin", "cost-aware"],
+        nargs="+", default=["single-clod", "cost-aware", "single"],
+        help="Strategies to test (default: single-clod cost-aware single)",
     )
     parser.add_argument(
         "--user", default=os.getenv("GYD_USERNAME", "exp2"),

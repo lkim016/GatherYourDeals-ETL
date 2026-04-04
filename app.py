@@ -211,8 +211,12 @@ async def run_etl(
     pipeline_start = time.monotonic()
     try:
         # --- OCR + LLM + geocode -------------------------------------------
+        # Run in a thread so Railtracks can create its own event loop without
+        # conflicting with FastAPI's already-running asyncio loop.
         try:
-            data = _etl.extract(image_path, _DEFAULT_USER, model, run_id, provider=provider)
+            data = await asyncio.to_thread(
+                _etl.extract, image_path, _DEFAULT_USER, model, run_id, provider
+            )
         except Exception as exc:
             total_ms = (time.monotonic() - pipeline_start) * 1000
             log_pipeline(run_id, display_name, _DEFAULT_USER, provider, model,

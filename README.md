@@ -6,15 +6,38 @@ Receipt digitization pipeline exposed as a REST service. Accepts a receipt image
 POST /etl  { "source": "<image URL or local path>" }
     │
     ▼  Step 1 — Azure Document Intelligence  (prebuilt-read)
-    │           Extracts all text from the image via OCR
+    │           Extracts raw text + per-word bounding-box coordinates
     │
-    ▼  Step 2 — LLM  (OpenRouter  /  CLOD)
-    │           Structures the OCR text into the GYD JSON format
+    ▼  Step 2 — Spatial Reconstruction
+    │           Tokens classified into columns [L] / [C] / [R] by X-position
+    │           [L] tokens grouped into rows by Y-proximity (tolerance 12 px)
+    │           [R] price tokens assigned to nearest [L] row at-or-below their Y
+    │           Garbage header lines filtered; purchase date injected into chunk
     │
-    ▼  Step 3 — Azure Maps Geocoding  (optional)
+    ▼  Step 3 — LLM Structuring  (OpenRouter / CLOD)
+    │           Chunked spatial layout → JSON extraction
+    │           Fields: productName, price, amount, purchaseDate, storeName
+    │           Chunks merged; purchaseDate forward-scanned across all chunks
+    │
+    ▼  Step 4 — Deterministic Post-Processing
+    │           Tier 1  Currency detection — scans OCR for CAD/GBP/EUR markers;
+    │                   overrides LLM default (which often assumes USD)
+    │           Tier 2  Price/amount validation — strips tax-code letters
+    │                   (e.g. "4.79 S" → "4.79"), removes unit codes (EA/MRJ/PK)
+    │           Tier 3  Weight-item recovery — regex parses
+    │                   "X.XXX kg @ $Y.YY/kg TOTAL" lines from raw OCR;
+    │                   injects correct price + weight amount; adds items the
+    │                   LLM missed entirely
+    │           Tier 4  Store name normalization — maps ALL-CAPS brand codes
+    │                   (e.g. NOFRILLS) to canonical form (No Frills)
+    │           Tier 5  Null-price repair — targeted re-extraction for any
+    │                   items still missing a price after tiers 1–4
+    │
+    ▼  Step 5 — Azure Maps Geocoding  (optional)
     │           Resolves store address → latitude / longitude
+    │           Address extracted from OCR if LLM returns none
     │
-    ▼  Step 4 — GYD Upload
+    ▼  Step 6 — GYD Upload
                 Uploads structured items to the GYD data service via SDK
 ```
 
@@ -258,6 +281,61 @@ Scores every file in `output/<provider>/` against `ground_truth/` field by field
 - **Item name / price / amount** — per-item matching
 
 Overall 0–100 score (50% scalar fields, 50% item accuracy) saved to `reports/`.
+
+---
+
+## LLM Extraction
+
+### Chunking strategy
+
+Long OCR outputs are split into overlapping chunks (~2,500 chars each, 10-line overlap) so the LLM context window is never exceeded. Each chunk is prefixed with a 3-line header (store name, address, purchase date) so every chunk has enough context to populate all fields.
+
+When Azure Document Intelligence returns a spatial layout (bounding-box data), the pipeline switches to a **spatial-only path**: the raw OCR is discarded in favor of a column-tagged layout built from the word coordinates. This eliminates the raw OCR line-ordering confusion that causes price misalignment on receipts like Costco where prices are printed before item names.
+
+### Spatial reconstruction
+
+Tokens are classified into three columns by their X-centre relative to the page width:
+
+| Column | Tag | Content |
+|--------|-----|---------|
+| Left (< 35%) | `[L]` | Product name |
+| Centre (35–65%) | `[C]` | Quantity / unit code |
+| Right (> 65%) | `[R]` | Price |
+
+`[L]` tokens are grouped into rows by Y-proximity (12 px tolerance). `[R]` price tokens are then assigned to the nearest `[L]` row **at or below** the price's Y position — a two-pass algorithm that handles the common Costco pattern where the price bounding box falls between two item rows.
+
+### Post-processing pipeline
+
+After the LLM returns JSON, several deterministic passes correct common model errors:
+
+| Tier | Function | What it fixes |
+|------|----------|---------------|
+| 1 | `_detect_currency_from_ocr` | Models default to USD; scans raw OCR for `CAD`, `C$`, `£`, `€` and overrides |
+| 2 | `_validate_and_fix_items` | Strips tax-code letters from amounts (`4.79 S` → `4.79`); removes unit codes (EA, MRJ, PK); rejects non-product lines (subtotal, tax, change) |
+| 3 | `_inject_weight_prices` | Parses `X.XXX kg @ $Y.YY/kg TOTAL` patterns from raw OCR; injects correct price and weight-amount for all matching items; adds any weight-priced items the LLM missed entirely |
+| 4 | `_normalize_store_name` | Maps ALL-CAPS brand codes (e.g. `NOFRILLS`) to canonical form (`No Frills`) via a static alias table |
+| 5 | `_repair_failed_items` | Re-extracts any item still carrying a null price after tiers 1–4 |
+
+### Date handling
+
+Receipts use several date formats. The pipeline detects and normalises all of them to `YYYY.MM.DD`:
+
+| Format | Example | Detection |
+|--------|---------|-----------|
+| `MM/DD/YYYY` | `01/03/2026` | `_DATE_MDY` regex |
+| `MM/DD/YY` | `01/03/26` | `_DATE_SHORT` (C < 12 → year) |
+| `YY/MM/DD` | `26/02/21` | `_DATE_SHORT` (A > 12 → year) |
+
+The extracted date is injected into every chunk header so that even when the date line falls in a later chunk, all chunks can populate `purchaseDate`. After merging, `purchaseDate` is forward-scanned across all chunks to find the first non-null value.
+
+### Multi-currency support
+
+| Currency | OCR markers detected |
+|----------|---------------------|
+| USD (default) | fallback when no other marker found |
+| CAD | `CAD`, `CAD$`, `C$`, `$CAD` |
+| GBP | `GBP`, `£` |
+| EUR | `EUR`, `€` |
 
 ---
 

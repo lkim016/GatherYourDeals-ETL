@@ -363,8 +363,9 @@ def compare():
         "",
         "| Model | Provider | Role |",
         "|-------|----------|------|",
-        "| anthropic/claude-haiku-4.5 | OpenRouter | Primary paid LLM — baseline for latency and correctness |",
-        "| qwen/qwen-2.5-7b-instruct | OpenRouter | Low-cost open-source alternative on OR — correctness vs. cost tradeoff |",
+        # OpenRouter models commented out — not in use during this experiment.
+        # "| anthropic/claude-haiku-4.5 | OpenRouter | Primary paid LLM — baseline for latency and correctness |",
+        # "| qwen/qwen-2.5-7b-instruct | OpenRouter | Low-cost open-source alternative on OR — correctness vs. cost tradeoff |",
         "| Qwen/Qwen2.5-7B-Instruct-Turbo | CLOD | Same Qwen model via CLOD — provider latency/cost comparison |",
         "| google/gemma-3n-E4B-it | CLOD | Multimodal-capable alternative — does model family matter at this size? |",
     ]
@@ -445,28 +446,44 @@ def _score_receipt(output_items: list, truth_items: list) -> dict:
     scores["totalItems"] = len(output_items) == len(truth_items)
 
     # --- Item-level matching ---
+    import difflib
+
+    def _norm_amount(s: str) -> str:
+        """Normalise amount strings for comparison: lowercase, collapse spaces, unify unit spellings."""
+        s = re.sub(r"\s+", "", s.lower().strip())   # "4 lbs" → "4lbs"
+        s = re.sub(r"\blbs?\b", "lb", s)            # "lbs"/"lb" → "lb"
+        s = re.sub(r"\bkgs?\b", "kg", s)            # "kgs" → "kg"
+        return s
+
     out_names = [_norm_name(i.get("productName", "")) for i in output_items]
     matched_names = matched_prices = matched_amounts = 0
 
     for t_item in truth_items:
         t_name   = _norm_name(t_item.get("productName", ""))
         t_price  = _parse_price(t_item.get("price"))
-        t_amount = str(t_item.get("amount") or "").strip()
+        t_amount = _norm_amount(str(t_item.get("amount") or ""))
 
         best_idx = None
+        # 1. Exact match
         if t_name in out_names:
             best_idx = out_names.index(t_name)
         else:
+            # 2. Substring match
             for oi, o_name in enumerate(out_names):
                 if t_name and (t_name in o_name or o_name in t_name):
                     best_idx = oi
                     break
+        # 3. Fuzzy match (handles abbreviations like "CH EVERYTHING BR MRJ" vs "CH Everything Bread")
+        if best_idx is None and t_name:
+            matches = difflib.get_close_matches(t_name, out_names, n=1, cutoff=0.6)
+            if matches:
+                best_idx = out_names.index(matches[0])
 
         if best_idx is not None:
             matched_names += 1
             o_item   = output_items[best_idx]
             o_price  = _parse_price(o_item.get("price"))
-            o_amount = str(o_item.get("amount") or "").strip()
+            o_amount = _norm_amount(str(o_item.get("amount") or ""))
             if t_price is not None and o_price is not None and abs(t_price - o_price) <= 0.01:
                 matched_prices += 1
             if t_amount and o_amount and t_amount == o_amount:
@@ -477,10 +494,14 @@ def _score_receipt(output_items: list, truth_items: list) -> dict:
     scores["item_price_match"]  = f"{matched_prices}/{n}"
     scores["item_amount_match"] = f"{matched_amounts}/{n}"
 
+    # Equal 1/8 weight across all 8 fields shown in the eval table:
+    #   storeName, purchaseDate, latitude, longitude, totalItems,
+    #   item name match rate, item price match rate, item amount match rate.
     scalar_fields = ["storeName", "purchaseDate", "latitude", "longitude", "totalItems"]
-    scalar_score  = sum(1 for f in scalar_fields if scores[f]) / len(scalar_fields)
-    item_score    = (matched_names + matched_prices + matched_amounts) / (3 * n) if n > 0 else 1.0
-    scores["overall"] = round((scalar_score * 0.5 + item_score * 0.5) * 100, 1)
+    scalar_sum    = sum(1 for f in scalar_fields if scores[f])
+    item_sum      = (matched_names + matched_prices + matched_amounts) / n if n > 0 else 3.0
+    # 5 scalar fields (each 0 or 1) + 3 item rates (each 0.0–1.0) = 8 equal parts
+    scores["overall"] = round((scalar_sum + item_sum) / 8 * 100, 1)
 
     return scores
 
@@ -589,8 +610,8 @@ def baseline_report():
     """
     Generate a single structured baseline experiment report covering all
     pipeline providers: Azure DI (OCR) + all LLM providers run during the
-    experiment (OpenRouter/claude-haiku-4.5, OpenRouter/qwen-2.5-7b-instruct,
-    CLOD/Qwen2.5-7B-Instruct-Turbo, CLOD/gemma-3n-E4B-it).
+    experiment (CLOD/Qwen2.5-7B-Instruct-Turbo, CLOD/gemma-3n-E4B-it).
+    # OpenRouter providers commented out — not in use during this experiment.
 
     Scoped to the experiment window (.baseline_start) so historical runs
     don't pollute the report. Saved to reports/baseline_<ts>.md
@@ -703,7 +724,7 @@ def baseline_report():
 
     # ---- Build provider rows ----
     provider_rows = []
-    for (prov, model), es in sorted(providers.items()):
+    for (prov, model), es in sorted(providers.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "")):
         ok_es  = [e for e in es if e.get("llm_success")]
         lats   = sorted(e.get("llm_latency_ms", 0) for e in ok_es)
         n      = len(ok_es)
@@ -927,8 +948,7 @@ def baseline_report():
     md += [
         f"| **Total** | | **${adi_cost + total_llm_cost:.4f}** |",
         "",
-        "_openrouter costs are estimated from the published per-token rate card. "
-        "clod costs are taken directly from the API response and reflect whatever rate structure "
+        "_clod costs are taken directly from the API response and reflect whatever rate structure "
         "the provider applies — individual figures cannot be independently verified from token counts alone._",
         "",
         "## Findings",

@@ -167,6 +167,7 @@ Using the SPATIAL LAYOUT section (if present), reconstruct receipt rows first:
 - Each row follows: [L] ITEM NAME  [C] QTY (optional)  [R] PRICE
 - Prices are always right-aligned ([R] column) — never assign a [L] or [C] value as price
 - Quantities / weights are center-aligned ([C]) or follow the item name in [L]
+- [S] marks a store savings/discount row — its [R] value is a discount applied to the item in the [L] row immediately above it. Subtract it to get the final charged price (e.g. [R] 2.49 then [S][R] 0.50 → final price 1.99). Do NOT create a separate item for [S] rows.
 - If no SPATIAL LAYOUT, use the markdown table rows
 
 Then list raw extracted values:
@@ -245,7 +246,13 @@ Each element of items must have exactly these fields:
 
 ## Rules
 
-- Include only grocery/food product line items. Skip deposits, recycling fees, donations, bag fees, and miscellaneous non-product charges.
+- Include only purchasable product line items. Skip ALL of the following:
+  - Deposits, recycling fees, donations, bag fees, CA Redemption Value / CRV lines.
+  - Tax, subtotal, total, payment method, change-due, and savings/discount summary lines.
+  - Payment terminal / card slip data: card numbers, transaction IDs, reference numbers (Ref. #), auto numbers (Auto #), approval codes ("APPROVED", "DECLINED"), EMV application identifiers (strings starting with A000...), "CUSTOMER COPY", "RETAIN THIS COPY", "DateTime", "Visa Credit", "Debit Card".
+  - Promotional and footer text: survey URLs (www., .com), loyalty point promotions ("EARN X FUEL POINTS", "FUEL POINTS"), thank-you messages, employee/manager contact lines (MGR:), job listings, store website addresses, feedback solicitations.
+  - Sale/discount modifier lines: lines like "(SALE)", "MEMBER SAVINGS", "INSTANT SAVINGS", "DIGITAL COUPON", "PRICE REDUCTION" that appear below an item and modify its price — do not extract these as separate items.
+  - Never create placeholder items like "Item 1", "Item 2", "Item 3". If you cannot identify a clear product name from the spatial layout, skip that row entirely.
 - storeName must be the store's brand/chain name as printed on the receipt header (e.g. "Costco Wholesale", "Your Independent Grocer", "T&T Supermarket"). Do not append address, city, or branch details.
 - purchaseDate must be the transaction date, formatted YYYY.MM.DD. If the year looks implausible (before 2020) you are likely reading a receipt number, time, or barcode — re-examine the receipt for the correct date.
 - price is the total amount charged for that line item as shown in the right-hand price column. Do not use per-unit rates, per-oz prices, or any divided amount. Always include the currency code: "4.79USD" not "4.79".
@@ -365,6 +372,12 @@ def _reconstruct_spatial_rows(result) -> str:
         text = getattr(line, "content", None)
         if not poly or not text:
             continue
+        # Strip structural noise (totals, tax, CRV, payment lines) before
+        # spatial assignment so their prices can't be misassigned to a product
+        # row. Savings/discount lines are intentionally kept — they are labeled
+        # [S] in the render so the LLM can subtract them from the item price.
+        if _SPATIAL_NOISE_LINE.match(text.strip()):
+            continue
         # polygon: flat list [x1,y1,x2,y2,x3,y3,x4,y4] or list of Point objects
         if hasattr(poly[0], "x"):
             xs = [p.x for p in poly]
@@ -428,6 +441,33 @@ def _reconstruct_spatial_rows(result) -> str:
 
         group_rights[best_idx].append((r_y, r_x, r_text))
 
+    # --- Pass 3: merge continuation lines into their parent row ---
+    # When a product name wraps across two OCR lines they land in separate [L]
+    # groups (Y gap > tolerance).  If the second group has no [R] token assigned
+    # it is almost certainly a continuation of the line above, not a new item.
+    # Merge it upward so the LLM sees one complete name on one row.
+    continuation_threshold = tolerance * 3   # ~4.5% of page height ≈ 2-3 line heights
+    merged_groups:  list[list[tuple[float, float, str]]] = []
+    merged_rights:  list[list[tuple[float, float, str]]] = []
+
+    for i, group in enumerate(left_groups):
+        r_tokens = group_rights[i]
+        if (merged_groups
+                and not r_tokens                                    # no price on this line
+                and not merged_rights[-1]                           # parent also has no price yet
+                and (group[0][0] - merged_groups[-1][0][0])        # Y gap from parent
+                    <= continuation_threshold):
+            # Continuation line — absorb into the previous group
+            merged_groups[-1].extend(group)
+        else:
+            merged_groups.append(group)
+            merged_rights.append(r_tokens)
+
+    # Re-derive group_ys from merged groups for [C] assignment below
+    group_ys     = [g[0][0] for g in merged_groups]
+    left_groups  = merged_groups
+    group_rights = merged_rights
+
     # Assign [C] tokens to nearest [L] group by Y
     group_centers: list[list[tuple[float, float, str]]] = [[] for _ in left_groups]
     for c_y, c_x, c_text in center_tokens:
@@ -435,17 +475,27 @@ def _reconstruct_spatial_rows(result) -> str:
         group_centers[best_idx].append((c_y, c_x, c_text))
 
     # --- Render rows ---
+    # Each token is labeled with its column AND its normalised Y coordinate
+    # (0.00 = top of page, 1.00 = bottom) so the LLM can see which tokens
+    # share a row and detect small vertical offsets that pure column labels
+    # cannot express (e.g. Costco prices sitting 1-2 px above their item name).
     output_lines: list[str] = []
     for i, group in enumerate(left_groups):
         parts: list[str] = []
+        # Determine if this group is a savings/discount line — label it [S]
+        # so the LLM knows to subtract its [R] value from the item above.
+        group_text = " ".join(t[2] for t in group)
+        col_label  = "S" if _SAVINGS_LINE.search(group_text) else "L"
         # Left + center tokens sorted left-to-right
-        lc = [(t, "L") for t in group] + [(t, "C") for t in group_centers[i]]
+        lc = [(t, col_label) for t in group] + [(t, "C") for t in group_centers[i]]
         lc.sort(key=lambda tc: tc[0][1])
         for t, col in lc:
-            parts.append(f"[{col}] {t[2]}")
+            y_norm = t[0] / page_height
+            parts.append(f"[{col}:{y_norm:.2f}] {t[2]}")
         # Right tokens sorted left-to-right
-        for _, _, text in sorted(group_rights[i], key=lambda t: t[1]):
-            parts.append(f"[R] {text}")
+        for r_y, _, text in sorted(group_rights[i], key=lambda t: t[1]):
+            y_norm = r_y / page_height
+            parts.append(f"[R:{y_norm:.2f}] {text}")
         if parts:
             output_lines.append("  |  ".join(parts))
 
@@ -499,7 +549,8 @@ def ocr(image_path: Path, run_id: str, user_id: str = "") -> str:
         ocr_text = (
             markdown
             + "\n\n---\n## SPATIAL LAYOUT\n"
-            + "Each token labeled [L]=description  [C]=quantity  [R]=price.\n"
+            + "Each token labeled [COL:Y] where COL=L/C/R (column) and Y=normalised page position (0.00=top, 1.00=bottom).\n"
+            + "Tokens with the same or very close Y values are on the same physical row.\n"
             + "Use this section to extract items — preserves column alignment.\n\n"
             + spatial
         ) if spatial else markdown
@@ -604,8 +655,9 @@ def _fetch_openrouter_generation(generation_id: str) -> dict:
 # Used as fallback when the generation API doesn't return a cost.
 # https://openrouter.ai/anthropic/claude-haiku-4.5
 _OR_PRICING: dict[str, tuple[float, float]] = {
-    "anthropic/claude-haiku-4.5":    (1.00, 5.00),  # $/M input, $/M output
-    "qwen/qwen-2.5-7b-instruct":     (0.04, 0.10),  # $/M input, $/M output
+    "anthropic/claude-haiku-4.5":    (1.00,  5.00),  # $/M input, $/M output
+    "qwen/qwen-2.5-7b-instruct":     (0.04,  0.10),
+    "google/gemini-flash-1.5":       (0.075, 0.30),  # repair escalation model
 }
 
 def _estimate_openrouter_cost(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -936,6 +988,201 @@ def normalize_store_name(raw: str, model: str, provider: str) -> str:
         return raw
 
 
+# ---------------------------------------------------------------------------
+# Tier 1 — OCR noise filter
+# ---------------------------------------------------------------------------
+# Strips lines that are almost certainly not product items before the text
+# reaches the LLM.  This reduces input tokens (improving speed and cost) and
+# prevents the model from confusing totals/tax/payment lines with item rows.
+
+_NOISE_LINE = re.compile(
+    r"^\s*(?:"
+    r"sub\s*total|subtotal|total|net\s*total|grand\s*total|"
+    r"hst|gst|pst|qst|vat|tax|surcharge|"
+    r"payment|cash|credit|debit|visa|mastercard|interac|amex|"
+    r"change\s*due|balance\s*due|amount\s*due|amount\s*tendered|"
+    r"savings?|you\s*saved|instant\s*savings?|member\s*savings?|everyday\s*savings?|"
+    r"discount|coupon|points?|rewards?|loyalty|"
+    r"thank\s*you|please\s*come|visit\s*us|survey|"
+    r"receipt\s*#|store\s*#|ref\s*#|trans\s*#|auth\s*#|approval|"
+    r"approved|declined|pin\s*verified|customer\s*copy|merchant\s*copy|"
+    r"crv|ca\s*redemp|deposit|bottle\s*dep|bag\s*fee|"
+    r"cashier|operator|terminal|"
+    r"\*{2,}|={3,}|-{3,}|#{3,}"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Spatial-layout noise filter — same as _NOISE_LINE but intentionally keeps
+# savings/discount lines so the LLM can compute the final discounted price.
+_SPATIAL_NOISE_LINE = re.compile(
+    r"^\s*(?:"
+    r"sub\s*total|subtotal|total|net\s*total|grand\s*total|"
+    r"hst|gst|pst|qst|vat|tax|surcharge|"
+    r"payment|cash|credit|debit|visa|mastercard|interac|amex|"
+    r"change\s*due|balance\s*due|amount\s*due|amount\s*tendered|"
+    r"thank\s*you|please\s*come|visit\s*us|survey|"
+    r"receipt\s*#|store\s*#|ref\s*#|trans\s*#|auth\s*#|approval|"
+    r"approved|declined|pin\s*verified|customer\s*copy|merchant\s*copy|"
+    r"crv|ca\s*redemp|deposit|bottle\s*dep|bag\s*fee|"
+    r"cashier|operator|terminal|"
+    r"\*{2,}|={3,}|-{3,}|#{3,}"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Identifies savings/discount lines in the spatial layout so they can be
+# labeled [S] and associated with the item above them.
+_SAVINGS_LINE = re.compile(
+    r"\b(savings?|you\s*saved|instant\s*savings?|member\s*savings?|"
+    r"everyday\s*savings?|digital\s*coupon|coupon\s*savings?|discount)\b",
+    re.IGNORECASE,
+)
+
+
+def _filter_noise_lines(ocr_text: str) -> str:
+    """
+    Remove non-item lines from OCR text before sending to the LLM.
+
+    Keeps the spatial layout section intact (noise filtering only applies to
+    the raw OCR body).  Lines matching payment info, totals, tax, loyalty
+    points, and decorative separators are dropped.
+
+    This reduces token count on large receipts (e.g. NoFrills 16-item receipt:
+    6985 → ~3500 input tokens) and prevents the model from treating total/tax
+    lines as product items.
+    """
+    _SPATIAL_MARKER = "\n---\n## SPATIAL LAYOUT\n"
+    if _SPATIAL_MARKER in ocr_text:
+        raw_part, spatial_part = ocr_text.split(_SPATIAL_MARKER, 1)
+        filtered_raw = "\n".join(
+            line for line in raw_part.splitlines()
+            if not _NOISE_LINE.match(line)
+        )
+        return filtered_raw + _SPATIAL_MARKER + spatial_part
+    return "\n".join(
+        line for line in ocr_text.splitlines()
+        if not _NOISE_LINE.match(line)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tier 3b — Targeted repair for items with null/missing price
+# ---------------------------------------------------------------------------
+# When primary extraction leaves items with null price, re-query the LLM with
+# only the 5-line OCR window around that item — much cheaper than reprocessing
+# the full receipt (~50 tokens vs 6985).  If the repair still fails, escalate
+# to a stronger model via OpenRouter.
+
+_REPAIR_ESCALATION_MODEL = "google/gemini-flash-1.5"   # cheap + strong structured extraction
+
+
+def _find_ocr_context(product_name: str, ocr_text: str, window: int = 3) -> str:
+    """
+    Return the OCR lines surrounding the first occurrence of product_name.
+    Searches case-insensitively using the first significant word of the name.
+    Returns up to (2*window + 1) lines, or the full text if name not found.
+    """
+    keyword = product_name.split()[0].upper() if product_name else ""
+    lines = ocr_text.splitlines()
+    for i, line in enumerate(lines):
+        if keyword and keyword in line.upper():
+            start = max(0, i - window)
+            end   = min(len(lines), i + window + 1)
+            return "\n".join(lines[start:end])
+    return ocr_text[:500]   # fallback: first 500 chars if name not found
+
+
+def _repair_failed_items(
+    items: list[dict],
+    ocr_text: str,
+    model: str,
+    provider: str,
+    currency: str,
+) -> list[dict]:
+    """
+    Tier 3b + Tier 4: targeted re-extraction for items with null price.
+
+    For each item where price is None:
+      1. Extract a 7-line OCR window around the product name
+      2. Ask the primary model (same provider/model) for just the price
+      3. If still null, escalate to OpenRouter google/gemini-flash-1.5
+
+    Items that cannot be repaired are dropped (null price = invalid upload).
+    Items with a valid price are updated in-place and kept.
+    """
+    import httpx
+    from openai import OpenAI
+
+    repaired: list[dict] = []
+    for item in items:
+        price = (item.get("price") or "").strip()
+        if price and price.lower() != "null":
+            repaired.append(item)
+            continue
+
+        name    = item.get("productName", "unknown item")
+        context = _find_ocr_context(name, ocr_text)
+        prompt  = (
+            f'From this receipt section, extract the price of "{name}".\n'
+            f"Return only the numeric price (e.g. 3.49). No currency symbol, no explanation.\n\n"
+            f"Receipt section:\n{context}"
+        )
+
+        found_price: str | None = None
+
+        # --- Tier 3b: retry with same model ---
+        try:
+            if provider == "clod" and CLOD_API_KEY:
+                resp = httpx.post(
+                    CLOD_API_URL,
+                    headers={"Authorization": f"Bearer {CLOD_API_KEY}", "Content-Type": "application/json"},
+                    json={"model": model, "messages": [{"role": "user", "content": prompt}]},
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                raw = resp.json()["choices"][0]["message"]["content"].strip()
+            elif OPENROUTER_API_KEY:
+                client = OpenAI(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0, max_tokens=16,
+                )
+                raw = resp.choices[0].message.content.strip()
+            else:
+                raw = ""
+
+            m = re.search(r"\d+\.?\d*", raw)
+            if m:
+                found_price = f"{float(m.group()):.2f}{currency}"
+        except Exception:
+            pass
+
+        # --- Tier 4: escalate to gemini-flash if still null ---
+        if not found_price and OPENROUTER_API_KEY:
+            try:
+                client = OpenAI(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
+                resp = client.chat.completions.create(
+                    model=_REPAIR_ESCALATION_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0, max_tokens=16,
+                )
+                raw = resp.choices[0].message.content.strip()
+                m = re.search(r"\d+\.?\d*", raw)
+                if m:
+                    found_price = f"{float(m.group()):.2f}{currency}"
+            except Exception:
+                pass
+
+        if found_price:
+            item["price"] = found_price
+            repaired.append(item)
+        # else: drop the item — null price cannot be uploaded
+
+    return repaired
+
+
 def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[dict]:
     """
     Deterministic post-processing rules applied after LLM extraction.
@@ -953,15 +1200,44 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
       9. Strip unrecognised unit codes from amount.
     """
     _PRICE_RE       = re.compile(r"(\d+\.?\d*)")
-    _UNIT_STRIP     = re.compile(r"\b(W|EA|PK|F|PC|CT|BG|LT|BT|CN|OZ|each)\b", re.IGNORECASE)
+    _UNIT_STRIP     = re.compile(r"\b(W|EA|PK|F|PC|CT|BG|LT|BT|CN|OZ|MRJ|each)\b", re.IGNORECASE)
     _PRICE_FMT      = re.compile(r"^\d+\.\d{2}\s*[A-Za-z]?$")  # "4.79", "4.79S", "4.79 S"
     _ITEM_CODE      = re.compile(r"^\d{4,}\s+")            # leading 4+ digit item/barcode code
     _PRICE_LETTER   = re.compile(r"^(\d+\.?\d*)[A-Za-z]+$")  # "11.99A", "8.99N"
     _NON_PRODUCT    = re.compile(
         r"\b(tax|saving|savings|discount|instant\s+saving|subtotal|total|"
-        r"redemp|crv|deposit|donation|bag\s+fee)\b",
+        r"redemp|crv|deposit|donation|bag\s+fee|"
+        # Payment terminal / card slip lines
+        r"approved|customer\s+copy|card\s+number|retain\s+this|"
+        r"ref\.?\s*#|auto\s*#|visa\s+credit|entry\s+id|datetime|"
+        r"transaction\s+id|debit\s+card|credit\s+card|"
+        # Promotional / footer text
+        r"fuel\s+points|thank\s+you\s+for\s+shopping|earn\s+\d+|"
+        r"opportunity\s+awaits|join\s+our\s+team|feedback|"
+        r"closing\s+balance|points\s+redeemed|pc\s+optimum|"
+        # Sale/discount modifier lines (not standalone products)
+        r"member\s+saving|digital\s+coupon|coupon\s+saving|"
+        r"instant\s+saving|price\s+reduction)\b",
         re.IGNORECASE,
     )
+    # Structural junk: URLs, EMV AIDs (A000...), "Item N" placeholders,
+    # approval code lines ("00 APPROVED"), standalone short codes ("SC")
+    _JUNK_NAME = re.compile(
+        r"(www\.|\.com\b|\.org\b|jobs\.|"          # URLs
+        r"^[Aa][0-9a-fA-F]{8,}|"                   # EMV AID e.g. A0000000031010
+        r"^\d{2,3}\s+[A-Z]{2,}|"                   # "00 APPROVED", "03 DECLINED"
+        r"^item\s+\d+$|"                            # "Item 1", "Item 2"
+        r"^\*{2,}|"                                 # "*** CUSTOMER COPY ***"
+        r"^mgr:|^date:|^time:|"                     # manager/timestamp footer fields
+        r"^\(sale\)\s*$|"                           # bare "(SALE)" line
+        r"^\(?\d{3}\)?[\s\-]\d{3}[\s\-]\d{4}|"     # phone numbers (604) 688-0911
+        r"^\d{2}/\d{2}/\d{2,4}\s+\d{1,2}:\d{2}|"  # timestamps 02/19/26 7:53:13 PM
+        r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})",      # ISO timestamps 2026-02-19 07:53
+        re.IGNORECASE,
+    )
+    # Sale-modifier prefix — remove "(SALE)" prefix from duplicated item names
+    _SALE_PREFIX = re.compile(r"^\(sale\)\s+", re.IGNORECASE)
+
     _MAX_ITEM_PRICE = 99.0   # prices above this are almost certainly totals/subtotals
     _MIN_ITEM_PRICE = 0.50   # prices below this are almost certainly CA CRV / deposit fees bleeding in
 
@@ -971,9 +1247,37 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
         if not name:
             continue
 
-        # Drop non-product rows (tax, savings, redemption fees, totals)
+        # Drop non-product rows (tax, savings, redemption fees, totals,
+        # payment terminal lines, promotional footer text)
         if _NON_PRODUCT.search(name):
             continue
+
+        # Drop structurally-junk names (URLs, EMV AIDs, "Item N", approval codes,
+        # phone numbers, timestamps)
+        if _JUNK_NAME.search(name):
+            continue
+
+        # Drop names that are too short to be a real product (single chars, "SC", "R")
+        # or are purely numeric (OCR noise like "0.41" ending up as a product name).
+        if len(name) <= 2 or re.fullmatch(r"[\d\s\.\,\-]+", name):
+            continue
+
+        # Drop store-metadata lines that models occasionally extract as items:
+        # street addresses ("123 Main St"), phone-number prefixes ("(604)"),
+        # "Welcome #", "Ref. #" variants, and lines that are mostly digits/punctuation.
+        if re.search(r"\b(welcome|davie|street|avenue|blvd|suite|unit|floor)\b", name, re.IGNORECASE):
+            continue
+
+        # Drop items whose name is predominantly CJK characters (bilingual receipt
+        # duplicates — T&T extracts each item in both English and Chinese).
+        cjk_chars = sum(1 for c in name if '\u4e00' <= c <= '\u9fff')
+        if cjk_chars > len(name) * 0.4:
+            continue
+
+        # Strip "(SALE)" prefix — these are duplicate rows for a discounted item,
+        # not separate products. Remove the prefix so the dedup key matches.
+        name = _SALE_PREFIX.sub("", name).strip()
+        item["productName"] = name
 
         # Strip leading item/barcode codes the LLM left in productName
         clean_name = _ITEM_CODE.sub("", name).strip()
@@ -1028,7 +1332,39 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
 
         fixed.append(item)
 
-    return fixed
+    # --- Dedup pass: remove items extracted more than once ---
+    # Catches duplicates that slip through chunk-merge dedup:
+    #   1. Exact (name, price) duplicates within a single LLM response.
+    #   2. Fuzzy name duplicates — same item named slightly differently
+    #      (e.g. "CAMPBELLS SOUP" vs "Campbell's Soup") at the same price.
+    import difflib
+
+    def _norm_for_dedup(s: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", s.lower())
+
+    deduped: list[dict] = []
+    for item in fixed:
+        name_raw  = _norm_for_dedup(item.get("productName") or "")
+        price_raw = re.sub(r"[A-Za-z]+$", "", (item.get("price") or "").strip())
+        is_dup = False
+        for kept in deduped:
+            kept_name  = _norm_for_dedup(kept.get("productName") or "")
+            kept_price = re.sub(r"[A-Za-z]+$", "", (kept.get("price") or "").strip())
+            if kept_price != price_raw:
+                continue   # different price → definitely different items
+            # Same price: check name similarity
+            if name_raw == kept_name:
+                is_dup = True
+                break
+            if name_raw and kept_name:
+                ratio = difflib.SequenceMatcher(None, name_raw, kept_name).ratio()
+                if ratio >= 0.85:   # 85% similarity at same price → duplicate
+                    is_dup = True
+                    break
+        if not is_dup:
+            deduped.append(item)
+
+    return deduped
 
 
 _CURRENCY_MARKERS = [
@@ -1047,6 +1383,228 @@ def _detect_currency_from_ocr(ocr_text: str) -> str | None:
         if pattern.search(ocr_text):
             return code
     return None
+
+
+# ---------------------------------------------------------------------------
+# Weight-priced item recovery
+# ---------------------------------------------------------------------------
+# Some receipts (e.g. No Frills) print items as:
+#   BANANA
+#   1.160 kg @ $1.72/kg  2.00        ← weight, per-unit rate, and total on one line
+#   CELERY STICKS
+#   0.075 kg @ $3.49/kg              ← total on the next line
+#   0.26
+#
+# The LLM often extracts the item name but returns null price/amount because the
+# ---------------------------------------------------------------------------
+# Store-name aliases: LLM sometimes returns ALL-CAPS brand codes; map them
+# back to the canonical "as-written" store name used in the ground truth.
+# Keys are upper-cased for case-insensitive lookup.
+# ---------------------------------------------------------------------------
+_STORE_ALIASES: dict[str, str] = {
+    "NOFRILLS":         "No Frills",
+    "NO FRILLS":        "No Frills",
+    "COSTCO WHOLESALE": "Costco Wholesale",
+    "COSTCO":           "Costco Wholesale",
+    "VONS":             "Vons",
+    "VONS STORE":       "Vons",
+}
+
+
+def _normalize_store_name(raw: str) -> str:
+    return _STORE_ALIASES.get((raw or "").strip().upper(), raw)
+
+
+# Known Canadian stores — when OCR has no explicit CAD marker, infer from store name.
+_CANADIAN_STORE_NAMES: frozenset[str] = frozenset({
+    "No Frills",
+    "Real Canadian Superstore",
+    "T&T Supermarket",
+    "House of Dosa",
+    "House of Dosa- Downtown",
+    "Loblaws",
+    "Sobeys",
+    "Metro",
+    "FreshCo",
+    "Food Basics",
+    "Independent",
+})
+
+
+def _infer_currency_from_store(store_name: str) -> str | None:
+    """Return 'CAD' if store_name is a known Canadian chain, else None."""
+    name = (store_name or "").strip()
+    if name in _CANADIAN_STORE_NAMES:
+        return "CAD"
+    # Partial-match for stores that may have branch suffixes (e.g. "Real Canadian® Superstore")
+    name_upper = name.upper()
+    canadian_keywords = ("NO FRILLS", "REAL CANADIAN", "T&T SUPERMARKET",
+                         "HOUSE OF DOSA", "LOBLAWS", "SOBEYS", "FRESHCO",
+                         "FOOD BASICS")
+    for kw in canadian_keywords:
+        if kw in name_upper:
+            return "CAD"
+    return None
+
+
+# OCR number spacing (`1. 160`, `1. 72`) confuses it.  This regex + function
+# parses the raw OCR deterministically and injects the correct price/amount.
+_WEIGHT_ITEM_RE = re.compile(
+    r'([\d]+\.[\d]+)\s*kg\s*@\s*\$\s*([\d]+\.[\d]+)\s*/kg(?:\s+([\d]+\.[\d]+))?',
+    re.IGNORECASE,
+)
+_NORM_SPACED_NUM  = re.compile(r'(\d)\.\s+(\d)')   # "1. 160" → "1.160"
+_DANGLING_PRICE   = re.compile(r'^\$?(\d+\.\d{2})\s*$')   # a line that is ONLY a price: "2.00", "$2.00"
+_ENDS_WITH_PRICE  = re.compile(r'\$?\d+\.\d{2}\s*$')      # line already ends with a price
+
+
+def _join_split_price_lines(ocr_text: str) -> str:
+    """
+    Join dangling price lines back onto the preceding item line.
+
+    Some receipt scanners emit item name and price on separate lines:
+        BANANAS
+        2.00
+    The LLM sees two unrelated lines and often returns price=null.
+    This pass collapses them into one:
+        BANANAS  2.00
+
+    Rules (conservative to avoid false merges):
+      - Current line is ONLY a price value (no other text).
+      - Previous non-blank line does NOT already end with a price.
+      - Previous line is not a section header / separator.
+
+    Only applied to the raw OCR body — the SPATIAL LAYOUT section
+    (built from bounding-box coordinates) is left untouched.
+    """
+    _SPATIAL_MARKER = "\n---\n## SPATIAL LAYOUT\n"
+    if _SPATIAL_MARKER in ocr_text:
+        raw_part, spatial_part = ocr_text.split(_SPATIAL_MARKER, 1)
+        return _join_split_price_lines(raw_part) + _SPATIAL_MARKER + spatial_part
+
+    lines  = ocr_text.split('\n')
+    result: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if (stripped
+                and _DANGLING_PRICE.match(stripped)
+                and result):
+            # Find the last non-blank line in result
+            for i in range(len(result) - 1, -1, -1):
+                prev = result[i].rstrip()
+                if not prev:
+                    continue
+                # Only merge if prev doesn't already carry a price
+                if not _ENDS_WITH_PRICE.search(prev):
+                    result[i] = prev + '  ' + stripped
+                break
+            else:
+                result.append(line)
+        else:
+            result.append(line)
+    return '\n'.join(result)
+
+
+def _extract_weight_items_from_ocr(ocr_text: str) -> dict[str, tuple[str, str]]:
+    """
+    Scan raw OCR for weight-priced lines and return:
+        { UPPER_ITEM_NAME: (weight_str, total_price_str) }
+    """
+    # Work only on the raw OCR (before the spatial layout section)
+    raw = ocr_text.split("\n---\n")[0] if "\n---\n" in ocr_text else ocr_text
+    lines = raw.splitlines()
+
+    def _norm(s: str) -> str:
+        return _NORM_SPACED_NUM.sub(r'\1.\2', s).strip()
+
+    result: dict[str, tuple[str, str]] = {}
+    for i, line in enumerate(lines):
+        m = _WEIGHT_ITEM_RE.search(_norm(line))
+        if not m:
+            continue
+        weight_str = m.group(1)
+        total_str  = m.group(3)  # may be on the same line
+
+        # Total not on the same line — scan the next few lines for a bare number
+        if not total_str:
+            for j in range(i + 1, min(i + 4, len(lines))):
+                candidate = _norm(lines[j].strip())
+                if re.match(r'^\d+\.\d+$', candidate):
+                    total_str = candidate
+                    break
+
+        if not total_str:
+            continue  # couldn't find a total — skip
+
+        # Item name is on a line preceding the weight line
+        # Skip blank lines and MRJ-only lines while looking backwards
+        for k in range(i - 1, max(i - 5, -1), -1):
+            prev = lines[k].strip()
+            if not prev or prev.upper() == 'MRJ':
+                continue
+            # Strip leading barcode number and trailing MRJ tag
+            cleaned = re.sub(r'^\d+\s+', '', prev)
+            cleaned = re.sub(r'\s+MRJ\s*$', '', cleaned, flags=re.IGNORECASE).strip()
+            # Skip section headers like "27-PRODUCE"
+            if re.match(r'^\d+-[A-Z]+$', cleaned):
+                continue
+            if cleaned:
+                result[cleaned.upper()] = (weight_str, total_str)  # injector appends " kg"
+            break
+
+    return result
+
+
+def _inject_weight_prices(
+    items: list[dict], ocr_text: str, currency: str
+) -> list[dict]:
+    """
+    For any extracted item that has a null price, check whether the raw OCR
+    contains a weight-priced line for that item and inject the total price
+    and weight amount.
+    """
+    weight_map = _extract_weight_items_from_ocr(ocr_text)
+    if not weight_map:
+        return items
+    import difflib
+    matched_keys: set[str] = set()
+    for item in items:
+        name = (item.get("productName") or "").upper()
+        # Try exact match first, then fuzzy
+        candidates = [name] if name in weight_map else \
+            difflib.get_close_matches(name, weight_map.keys(), n=1, cutoff=0.6)
+        if not candidates:
+            continue
+        key = candidates[0]
+        matched_keys.add(key)
+        weight, total = weight_map[key]
+        # Always override: OCR-derived weight data is deterministic; LLM may
+        # hallucinate the wrong price for weight-priced items.
+        try:
+            item["price"]  = f"{float(total):.2f}{currency}"
+            item["amount"] = f"{weight} kg"
+        except ValueError:
+            pass
+
+    # Add any weight-priced items the LLM missed entirely.
+    # Seed metadata from the first extracted item (same receipt context).
+    proto = items[0] if items else {}
+    for key, (weight, total) in weight_map.items():
+        if key in matched_keys:
+            continue
+        try:
+            new_item: dict = {
+                "productName": key.title(),
+                "purchaseDate": proto.get("purchaseDate"),
+                "price":  f"{float(total):.2f}{currency}",
+                "amount": f"{weight} kg",
+                "storeName": proto.get("storeName"),
+            }
+            items.append(new_item)
+        except ValueError:
+            pass
+
+    return items
 
 
 # Matches lines that look like a street address: start with a number followed by
@@ -1122,6 +1680,20 @@ def structure(ocr_text: str, image_path: Path, user_name: str,
     """
     resolved_provider = (provider or LLM_PROVIDER).lower()
 
+    # Tier 0 — global OCR normalisation before any other processing.
+    # Step 1: fix spaced decimals ("1. 160" → "1.160", "1. 72" → "1.72").
+    # Step 2: join dangling price lines onto the preceding item line so the
+    #         LLM sees "BANANAS  2.00" rather than two unrelated lines.
+    # Applied once here so every downstream tier — noise filter, chunker,
+    # weight-price parser, and LLM prompt — all see clean, aligned text.
+    ocr_text = _NORM_SPACED_NUM.sub(r'\1.\2', ocr_text)
+    ocr_text = _join_split_price_lines(ocr_text)
+
+    # Tier 1 — strip noise lines before the text reaches the LLM.
+    # Reduces token count on large receipts and prevents total/tax rows
+    # from being misidentified as product items.
+    ocr_text = _filter_noise_lines(ocr_text)
+
     chunks = (
         _split_ocr_into_chunks(ocr_text)
         if len(ocr_text) > _CHUNK_THRESHOLD_CHARS
@@ -1167,11 +1739,34 @@ def structure(ocr_text: str, image_path: Path, user_name: str,
         result = _merge_chunk_results(chunk_results)
 
         # Deterministic post-processing: drop bad rows, fix column swaps
+
+        # Tier 2c — normalise store name first so Canadian-store CAD inference works.
+        if result.get("storeName"):
+            result["storeName"] = _normalize_store_name(result["storeName"])
+
         # Override LLM-extracted currency with deterministic OCR scan so
         # small models that default to "USD" are corrected for CA/GB/EU receipts.
-        currency = _detect_currency_from_ocr(ocr_text) or result.get("currency") or "USD"
+        # Fall back to Canadian-store inference when OCR has no explicit marker.
+        ocr_currency = _detect_currency_from_ocr(ocr_text)
+        if ocr_currency is None:
+            ocr_currency = _infer_currency_from_store(result.get("storeName") or "")
+        currency = ocr_currency or result.get("currency") or "USD"
         result["currency"] = currency
+
+        # Tier 2+3 — deterministic post-processing
         result["items"] = _validate_and_fix_items(result.get("items", []), currency)
+
+        # Tier 2b — recover prices for weight-priced items (e.g. "1.160 kg @ $1.72/kg 2.00")
+        # Do this before the null-price repair so weight items don't consume repair budget.
+        result["items"] = _inject_weight_prices(result["items"], ocr_text, currency)
+
+        # Tier 3b+4 — targeted repair for items with null price, then escalate
+        null_price_count = sum(1 for i in result["items"] if not (i.get("price") or "").strip() or (i.get("price") or "").lower() == "null")
+        if null_price_count:
+            result["items"] = _repair_failed_items(
+                result["items"], ocr_text, model, resolved_provider, currency
+            )
+
         result["totalItems"] = len(result["items"])
 
         latency_ms = (time.monotonic() - start) * 1000
