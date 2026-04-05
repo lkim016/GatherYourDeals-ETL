@@ -1,27 +1,25 @@
 """
 GatherYourDeals ETL — Reporting & Evaluation
 =============================================
-Standalone module for generating reports, model comparison tables, and
-eval scores from ETL run logs.
+Focused on three experiment dimensions: cost, latency, and correctness.
 
-Usage (via etl.py CLI):
-  python etl.py --report     Generate cumulative usage report from logs
-  python etl.py --compare    Generate per-model comparison table (Test 2)
-  python etl.py --eval       Compare output/ against ground_truth/
+Usage:
+  python reporting.py --eval              Compare output/ against ground_truth/
+  python reporting.py --baseline-report   Generate structured baseline experiment report
 
-Or run directly:
-  python reporting.py --report
-  python reporting.py --compare
-  python reporting.py --eval
+Or via etl.py CLI:
+  python etl.py --eval
+  python etl.py --baseline-report
 """
 
 import argparse
+import difflib
 import json
 import re
 import statistics
-import sys
 from collections import defaultdict
 from datetime import datetime, timezone
+from itertools import combinations
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -35,7 +33,7 @@ IMAGE_EXTS       = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".tiff", ".tif", 
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Log loader
 # ---------------------------------------------------------------------------
 def _load_log_entries() -> list[dict]:
     entries = []
@@ -50,336 +48,9 @@ def _load_log_entries() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Report — cumulative usage report from all logs
-# ---------------------------------------------------------------------------
-def report():
-    entries = _load_log_entries()
-
-    adi_entries = [e for e in entries if e.get("event") == "adi_ocr"]
-    llm_entries = [e for e in entries if e.get("event") == "llm_extraction"]
-    ups         = [e for e in entries if e.get("event") == "mcp_upload"]
-
-    if not llm_entries and not adi_entries:
-        print("No log entries found. Run the pipeline first.")
-        return
-
-    # ---- ADI stats ----
-    adi_calls   = len(adi_entries)
-    adi_cost    = sum(e.get("cost_usd", 0) for e in adi_entries)
-    adi_pages   = sum(e.get("pages", 0)    for e in adi_entries)
-    adi_avg_lat = (sum(e.get("ocr_latency_ms", 0) for e in adi_entries) / adi_calls
-                   if adi_calls else 0)
-
-    # ---- LLM stats ----
-    llm_calls    = len(llm_entries)
-    llm_ok       = sum(1 for e in llm_entries if e.get("llm_success"))
-    total_prompt = sum(e.get("llm_input_tokens",  0) for e in llm_entries)
-    total_comp   = sum(e.get("llm_output_tokens", 0) for e in llm_entries)
-    total_tokens = total_prompt + total_comp
-    llm_cost     = sum(e.get("llm_cost_usd", 0)     for e in llm_entries)
-    llm_avg_lat  = (sum(e.get("llm_latency_ms", 0) for e in llm_entries) / llm_calls
-                    if llm_calls else 0)
-    total_items  = sum(e.get("items_extracted", 0)  for e in llm_entries)
-    uploaded     = sum(e.get("items_uploaded",  0)  for e in ups)
-
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    lines = [
-        "# GatherYourDeals ETL Report",
-        f"_Generated: {now}_", "",
-        "## Cost & Token Summary", "",
-        "| Metric | Value |", "|--------|-------|",
-        f"| ADI OCR calls | {adi_calls} ({adi_pages} pages) |",
-        f"| ADI estimated cost | ${adi_cost:.4f} USD |",
-        f"| ADI avg latency | {adi_avg_lat:.0f} ms |",
-        f"| LLM calls | {llm_calls} ({llm_ok} success) |",
-        f"| LLM total tokens | {total_tokens:,} |",
-        f"| LLM input / output | {total_prompt:,} / {total_comp:,} |",
-        f"| LLM estimated cost | ${llm_cost:.6f} USD |",
-        f"| LLM avg latency | {llm_avg_lat:.0f} ms |",
-        f"| **Total estimated cost** | **${adi_cost + llm_cost:.6f} USD** |",
-        f"| Items extracted | {total_items} |",
-        f"| Items uploaded | {uploaded} |",
-        "", "## Per-Image Breakdown", "",
-        "| Image | OCR chars | ADI (ms) | ADI cost | LLM provider | LLM model | Input tok | Output tok | LLM cost | LLM (ms) | Items | OK |",
-        "|-------|----------:|---------:|---------:|--------------|-----------|----------:|-----------:|---------:|---------:|------:|:--:|",
-    ]
-
-    adi_by_name = {e.get("image_name"): e for e in adi_entries}
-    for e in llm_entries:
-        name = e.get("image_name", "?")
-        adi  = adi_by_name.get(name, {})
-        ok   = "✓" if e.get("llm_success") else "✗"
-        chars = adi.get("chars_extracted") or "—"
-        lines.append(
-            f"| {name} "
-            f"| {chars} "
-            f"| {adi.get('ocr_latency_ms', 0):.0f} | ${adi.get('cost_usd', 0):.4f} "
-            f"| {e.get('llm_provider', '?')} "
-            f"| {e.get('llm_model', '?')} "
-            f"| {e.get('llm_input_tokens', 0):,} | {e.get('llm_output_tokens', 0):,} "
-            f"| ${e.get('llm_cost_usd', 0):.6f} | {e.get('llm_latency_ms', 0):.0f} "
-            f"| {e.get('items_extracted', 0)} | {ok} |"
-        )
-
-    REPORTS_DIR.mkdir(exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    md_path = REPORTS_DIR / f"report_{ts}.md"
-    md_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Report → {md_path}")
-    _chart(adi_entries, llm_entries, ts, md_path)
-
-
-def _chart(adi_entries, llm_entries, ts, md_path):
-    try:
-        import matplotlib; matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Patch
-    except ImportError:
-        print("matplotlib not installed — skipping chart. pip install matplotlib")
-        return
-
-    if not llm_entries:
-        return
-
-    images  = [e.get("image_name", "?")          for e in llm_entries]
-    prompts = [e.get("llm_input_tokens",  0)     for e in llm_entries]
-    comps   = [e.get("llm_output_tokens", 0)     for e in llm_entries]
-    llm_lat = [e.get("llm_latency_ms",   0)      for e in llm_entries]
-    adi_by  = {e.get("image_name"): e.get("ocr_latency_ms", 0) for e in adi_entries}
-    adi_lat = [adi_by.get(n, 0) for n in images]
-    colours = ["#2ca02c" if e.get("llm_success") else "#d62728" for e in llm_entries]
-    x = list(range(len(images)))
-
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    fig.suptitle("GatherYourDeals ETL — Usage", fontweight="bold")
-
-    ax = axes[0]
-    ax.bar(x, prompts,               label="Prompt",     color="#4C72B0")
-    ax.bar(x, comps, bottom=prompts, label="Completion", color="#DD8452")
-    ax.set_xticks(x); ax.set_xticklabels(images, rotation=30, ha="right", fontsize=7)
-    ax.set_ylabel("Tokens"); ax.set_title("LLM Token Usage"); ax.legend()
-    for i, (p, c) in enumerate(zip(prompts, comps)):
-        ax.text(i, p + c, f"{p+c:,}", ha="center", va="bottom", fontsize=6)
-
-    ax2 = axes[1]
-    ax2.bar(x, llm_lat, color=colours)
-    ax2.set_xticks(x); ax2.set_xticklabels(images, rotation=30, ha="right", fontsize=7)
-    ax2.set_ylabel("ms"); ax2.set_title("LLM Latency per Image")
-    ax2.legend(handles=[Patch(color="#2ca02c", label="OK"),
-                        Patch(color="#d62728", label="Error")])
-
-    ax3 = axes[2]
-    ax3.bar(x, adi_lat, color="#9467BD")
-    ax3.set_xticks(x); ax3.set_xticklabels(images, rotation=30, ha="right", fontsize=7)
-    ax3.set_ylabel("ms"); ax3.set_title("ADI OCR Latency per Image")
-
-    plt.tight_layout()
-    chart = REPORTS_DIR / f"usage_chart_{ts}.png"
-    plt.savefig(chart, dpi=150, bbox_inches="tight"); plt.close()
-    print(f"Chart  → {chart}")
-    with open(md_path, "a", encoding="utf-8") as f:
-        f.write(f"\n\n![Usage Chart](./{chart.name})\n")
-
-
-# ---------------------------------------------------------------------------
-# Compare — per-model aggregated comparison table (Test 2)
-# ---------------------------------------------------------------------------
-def compare():
-    """
-    Read all ETL logs and produce an aggregated per-model comparison table
-    scoped to the receipts currently in Receipts/.
-
-    Outputs: reports/compare_<timestamp>.md
-    """
-    entries     = _load_log_entries()
-    llm_entries = [e for e in entries if e.get("event") == "llm_extraction"]
-    adi_entries = [e for e in entries if e.get("event") == "adi_ocr"]
-    # Most recent ADI entry per image (chars_extracted may vary slightly across runs)
-    adi_chars: dict[str, int] = {}
-    for e in adi_entries:
-        name = e.get("image_name", "")
-        if e.get("chars_extracted") is not None:
-            adi_chars[name] = e["chars_extracted"]
-    if not llm_entries:
-        print("No log entries found. Run the pipeline first.")
-        return
-
-    # Ground truth expected item counts (from ground_truth/*.json)
-    gt_counts: dict[str, int] = {}
-    if GROUND_TRUTH_DIR.exists():
-        for f in GROUND_TRUTH_DIR.glob("*.json"):
-            try:
-                items = json.loads(f.read_text(encoding="utf-8"))
-                gt_counts[f.stem] = len(items)
-            except Exception:
-                pass
-
-    # Current receipts in Receipts/ folder
-    receipts_dir = Path("Receipts")
-    current_receipts: set[str] = set()
-    if receipts_dir.exists():
-        current_receipts = {
-            f.name for f in receipts_dir.iterdir()
-            if f.suffix.lower() in IMAGE_EXTS
-        }
-
-    if not current_receipts:
-        print("No receipts found in Receipts/ — cannot scope comparison.")
-        return
-
-    # Group successful entries by (provider, model), scoped to current receipts
-    groups: dict[tuple, list] = defaultdict(list)
-    for e in llm_entries:
-        if e.get("image_name", "") in current_receipts and e.get("llm_success"):
-            key = (e.get("llm_provider", "?"), e.get("llm_model", "?"))
-            groups[key].append(e)
-
-    if not groups:
-        print("No successful runs found for current Receipts/ receipts.")
-        return
-
-    RECEIPTS_PER_DAY_LOW  = 100
-    RECEIPTS_PER_DAY_HIGH = 1_000
-
-    table_rows = []
-    for (provider, model), es in sorted(groups.items(), key=lambda x: x[0][1]):
-        lats     = sorted(e.get("llm_latency_ms", 0) for e in es)
-        in_toks  = [e.get("llm_input_tokens",  0) for e in es]
-        out_toks = [e.get("llm_output_tokens", 0) for e in es]
-        costs    = [e.get("llm_cost_usd", 0)      for e in es]
-        n = len(es)
-
-        avg_lat          = statistics.mean(lats)
-        med_lat          = statistics.median(lats)
-        p95_lat          = lats[min(int(0.95 * n), n - 1)]
-        avg_in           = statistics.mean(in_toks)
-        avg_out          = statistics.mean(out_toks)
-        cost_per_receipt = statistics.mean(costs)
-
-        # OCR context length — average chars across the receipts in this group
-        ocr_char_vals = [adi_chars[e["image_name"]] for e in es
-                         if e.get("image_name") in adi_chars]
-        avg_ocr_chars = f"{statistics.mean(ocr_char_vals):,.0f}" if ocr_char_vals else "—"
-
-        # Correctness: per receipt, take modal item count and compare to GT
-        by_receipt: dict[str, list] = defaultdict(list)
-        for e in es:
-            by_receipt[e.get("image_name", "")].append(e.get("items_extracted", 0))
-
-        correct = checked = 0
-        for img_name, counts in by_receipt.items():
-            stem = Path(img_name).stem
-            if stem in gt_counts:
-                modal = max(set(counts), key=counts.count)
-                if modal == gt_counts[stem]:
-                    correct += 1
-                checked += 1
-
-        correctness = f"{correct}/{checked}" if checked else "—"
-        throughput  = f"~{60_000 / med_lat:.0f}/min" if med_lat > 0 else "—"
-        cost_low    = f"${cost_per_receipt * RECEIPTS_PER_DAY_LOW:.2f}/day"  if cost_per_receipt > 0 else "$0.00*"
-        cost_high   = f"${cost_per_receipt * RECEIPTS_PER_DAY_HIGH:.2f}/day" if cost_per_receipt > 0 else "$0.00*"
-
-        table_rows.append({
-            "provider":       provider,
-            "model":          model,
-            "n":              n,
-            "avg_lat_ms":     f"{avg_lat:,.0f}",
-            "med_lat_ms":     f"{med_lat:,.0f}",
-            "p95_lat_ms":     f"{p95_lat:,.0f}",
-            "avg_ocr_chars":  avg_ocr_chars,
-            "avg_in_tok":     f"{avg_in:,.0f}",
-            "avg_out_tok":    f"{avg_out:,.0f}",
-            "cost_per":       f"${cost_per_receipt:.4f}" if cost_per_receipt > 0 else "$0.00",
-            "correctness":    correctness,
-            "throughput":     throughput,
-            "cost_low":       cost_low,
-            "cost_high":      cost_high,
-        })
-
-    # Print comparison table
-    header   = ["Provider", "Model", "n", "Avg lat", "Median lat", "p95 lat",
-                "OCR chars", "Avg in tok", "Avg out tok", "Cost/receipt", "Correct", "Throughput"]
-    col_keys = ["provider", "model", "n", "avg_lat_ms", "med_lat_ms", "p95_lat_ms",
-                "avg_ocr_chars", "avg_in_tok", "avg_out_tok", "cost_per", "correctness", "throughput"]
-    row_strs = [[str(r[k]) for k in col_keys] for r in table_rows]
-    widths   = [max(len(h), max((len(s[i]) for s in row_strs), default=0))
-                for i, h in enumerate(header)]
-
-    print("\n## Model Comparison — scoped to current Receipts/ (successful runs only)\n")
-    print("| " + " | ".join(h.ljust(w) for h, w in zip(header, widths)) + " |")
-    print("| " + " | ".join("-" * w for w in widths) + " |")
-    for s in row_strs:
-        print("| " + " | ".join(v.ljust(w) for v, w in zip(s, widths)) + " |")
-
-    # Print scale projections
-    scale_header = ["Provider", "Model", f"Cost @{RECEIPTS_PER_DAY_LOW}/day",
-                    f"Cost @{RECEIPTS_PER_DAY_HIGH}/day", "Throughput (sequential)"]
-    scale_keys   = ["provider", "model", "cost_low", "cost_high", "throughput"]
-    scale_strs   = [[str(r[k]) for k in scale_keys] for r in table_rows]
-    sw = [max(len(h), max((len(s[i]) for s in scale_strs), default=0))
-          for i, h in enumerate(scale_header)]
-
-    print("\n## Scale Projections\n")
-    print("| " + " | ".join(h.ljust(w) for h, w in zip(scale_header, sw)) + " |")
-    print("| " + " | ".join("-" * w for w in sw) + " |")
-    for s in scale_strs:
-        print("| " + " | ".join(v.ljust(w) for v, w in zip(s, sw)) + " |")
-    print("\n* Free-tier models: $0.00 until rate limit is hit.")
-
-    # Save markdown
-    REPORTS_DIR.mkdir(exist_ok=True)
-    ts      = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    md_lines = [
-        "# GatherYourDeals ETL — Model Comparison",
-        f"_Generated: {now_str}_",
-        f"_Scoped to: {len(current_receipts)} receipts in `Receipts/`_",
-        f"_Ground truth: {len(gt_counts)} receipts in `ground_truth/`_",
-        "",
-        "## Comparison Table",
-        "",
-        "| " + " | ".join(header) + " |",
-        "| " + " | ".join("-" * w for w in widths) + " |",
-    ]
-    for s in row_strs:
-        md_lines.append("| " + " | ".join(s) + " |")
-
-    md_lines += [
-        "",
-        "\\* Free-tier models: \\$0.00 until provider rate limit is hit.",
-        "",
-        "## Scale Projections",
-        "",
-        "| " + " | ".join(scale_header) + " |",
-        "| " + " | ".join("-" * w for w in sw) + " |",
-    ]
-    for s in scale_strs:
-        md_lines.append("| " + " | ".join(s) + " |")
-
-    md_lines += [
-        "",
-        "## What Each Model Represents",
-        "",
-        "| Model | Provider | Role |",
-        "|-------|----------|------|",
-        # OpenRouter models commented out — not in use during this experiment.
-        # "| anthropic/claude-haiku-4.5 | OpenRouter | Primary paid LLM — baseline for latency and correctness |",
-        # "| qwen/qwen-2.5-7b-instruct | OpenRouter | Low-cost open-source alternative on OR — correctness vs. cost tradeoff |",
-        "| Qwen/Qwen2.5-7B-Instruct-Turbo | CLOD | Same Qwen model via CLOD — provider latency/cost comparison |",
-        "| google/gemma-3n-E4B-it | CLOD | Multimodal-capable alternative — does model family matter at this size? |",
-    ]
-
-    md_path = REPORTS_DIR / f"compare_{ts}.md"
-    md_path.write_text("\n".join(md_lines), encoding="utf-8")
-    print(f"\nCompare report → {md_path}")
-
-
-# ---------------------------------------------------------------------------
 # Eval — compare output/ against ground_truth/
 # ---------------------------------------------------------------------------
 def _parse_price(val) -> float | None:
-    """Extract numeric part from a price string like '4.79USD' or '27.36CAD'."""
     if val is None:
         return None
     try:
@@ -392,69 +63,61 @@ def _norm_name(s: str) -> str:
     return re.sub(r"\s+", " ", str(s).lower().strip())
 
 
+def _norm_amount(s: str) -> str:
+    s = re.sub(r"\s+", "", s.lower().strip())
+    s = re.sub(r"\blbs?\b", "lb", s)
+    s = re.sub(r"\bkgs?\b", "kg", s)
+    return s
+
+
 def _score_receipt(output_items: list, truth_items: list) -> dict:
     """
-    Compare two flat per-item lists against each other.
-    Checks the 7 fields present in the flat output format:
-      storeName, purchaseDate, latitude, longitude  — receipt-level (from first item)
-      productName, price, amount                    — item-level
-    Returns a dict of field scores and an overall 0-100 score.
+    Score one extracted receipt against ground truth.
+
+    8 dimensions — each worth 1 point toward the overall score:
+      5 scalar fields  (store, date, lat, lon, item-count) → 5/8 total weight
+      3 item-rate fields (name match rate, price match rate,
+                          amount match rate)               → 3/8 total weight
+
+    overall = (scalar_sum + item_sum) / 8 × 100
+    where scalar_sum ∈ {0..5} and item_sum = avg of three 0–1 rates ∈ {0..3}.
     """
     scores = {}
-    out0   = output_items[0] if output_items else {}
-    tru0   = truth_items[0]  if truth_items  else {}
+    out0 = output_items[0] if output_items else {}
+    tru0 = truth_items[0]  if truth_items  else {}
 
-    # --- Receipt-level scalar fields (same across all items) ---
-    def exact(a, b, case_insensitive=True):
+    # --- Scalar fields ---
+    def exact(a, b):
         if a is None and b is None:
             return True
         if a is None or b is None:
             return False
-        a, b = str(a).strip(), str(b).strip()
-        return a.lower() == b.lower() if case_insensitive else a == b
+        return str(a).strip() == str(b).strip()
 
-    # storeName: word-overlap match — passes if any significant word (>3 chars)
-    # appears in both names. Handles abbreviations, missing branch details, etc.
-    a_store = str(out0.get("storeName") or "").strip().lower()
-    b_store = str(tru0.get("storeName") or "").strip().lower()
+    # Store: word-overlap — any significant word (>3 chars) in common counts
     _stop = {"the", "and", "your", "for"}
-    a_words = {w for w in re.split(r"\W+", a_store) if len(w) > 3 and w not in _stop}
-    b_words = {w for w in re.split(r"\W+", b_store) if len(w) > 3 and w not in _stop}
-    scores["storeName"] = bool(a_words and b_words and a_words & b_words)
-    scores["purchaseDate"] = exact(out0.get("purchaseDate"), tru0.get("purchaseDate"), case_insensitive=False)
+    a_words = {w for w in re.split(r"\W+", str(out0.get("storeName") or "").lower()) if len(w) > 3 and w not in _stop}
+    b_words = {w for w in re.split(r"\W+", str(tru0.get("storeName") or "").lower()) if len(w) > 3 and w not in _stop}
+    scores["storeName"]    = bool(a_words and b_words and a_words & b_words)
+    scores["purchaseDate"] = exact(out0.get("purchaseDate"), tru0.get("purchaseDate"))
 
-    # latitude / longitude: pass if within ~1.1 km (~0.01 degrees)
-    # Geocoding APIs return slightly different coordinates for the same store
-    # depending on address normalisation; 0.01° covers that variance while
-    # still failing a result that is in the wrong city or region.
-    def coord_match(field, tol=0.01):
-        a = out0.get(field)
-        b = tru0.get(field)
+    # Lat/lon: pass within 0.01° (~1.1 km) to cover geocoding variance
+    def coord_match(field):
+        a, b = out0.get(field), tru0.get(field)
         if a is None and b is None:
             return True
         if a is None or b is None:
             return False
         try:
-            return abs(float(a) - float(b)) <= tol
+            return abs(float(a) - float(b)) <= 0.01
         except (TypeError, ValueError):
             return False
 
-    scores["latitude"]  = coord_match("latitude")
-    scores["longitude"] = coord_match("longitude")
-
-    # item count
+    scores["latitude"]   = coord_match("latitude")
+    scores["longitude"]  = coord_match("longitude")
     scores["totalItems"] = len(output_items) == len(truth_items)
 
     # --- Item-level matching ---
-    import difflib
-
-    def _norm_amount(s: str) -> str:
-        """Normalise amount strings for comparison: lowercase, collapse spaces, unify unit spellings."""
-        s = re.sub(r"\s+", "", s.lower().strip())   # "4 lbs" → "4lbs"
-        s = re.sub(r"\blbs?\b", "lb", s)            # "lbs"/"lb" → "lb"
-        s = re.sub(r"\bkgs?\b", "kg", s)            # "kgs" → "kg"
-        return s
-
     out_names = [_norm_name(i.get("productName", "")) for i in output_items]
     matched_names = matched_prices = matched_amounts = 0
 
@@ -464,16 +127,13 @@ def _score_receipt(output_items: list, truth_items: list) -> dict:
         t_amount = _norm_amount(str(t_item.get("amount") or ""))
 
         best_idx = None
-        # 1. Exact match
         if t_name in out_names:
             best_idx = out_names.index(t_name)
         else:
-            # 2. Substring match
             for oi, o_name in enumerate(out_names):
                 if t_name and (t_name in o_name or o_name in t_name):
                     best_idx = oi
                     break
-        # 3. Fuzzy match (handles abbreviations like "CH EVERYTHING BR MRJ" vs "CH Everything Bread")
         if best_idx is None and t_name:
             matches = difflib.get_close_matches(t_name, out_names, n=1, cutoff=0.6)
             if matches:
@@ -494,60 +154,52 @@ def _score_receipt(output_items: list, truth_items: list) -> dict:
     scores["item_price_match"]  = f"{matched_prices}/{n}"
     scores["item_amount_match"] = f"{matched_amounts}/{n}"
 
-    # Equal 1/8 weight across all 8 fields shown in the eval table:
-    #   storeName, purchaseDate, latitude, longitude, totalItems,
-    #   item name match rate, item price match rate, item amount match rate.
-    scalar_fields = ["storeName", "purchaseDate", "latitude", "longitude", "totalItems"]
-    scalar_sum    = sum(1 for f in scalar_fields if scores[f])
-    item_sum      = (matched_names + matched_prices + matched_amounts) / n if n > 0 else 3.0
-    # 5 scalar fields (each 0 or 1) + 3 item rates (each 0.0–1.0) = 8 equal parts
+    # overall: 5 scalar points + up to 3 item-rate points, divided by 8
+    scalar_sum = sum(1 for f in ["storeName", "purchaseDate", "latitude", "longitude", "totalItems"] if scores[f])
+    item_sum   = (matched_names + matched_prices + matched_amounts) / n if n > 0 else 0.0
     scores["overall"] = round((scalar_sum + item_sum) / 8 * 100, 1)
 
     return scores
 
 
-def _compute_eval(output_dir: Path = OUTPUT_DIR, gt_dir: Path = GROUND_TRUTH_DIR):
-    """
-    Core eval logic — compare every output/<name>.json against ground_truth/<name>.json.
-    Returns (header, rows, scores) for use by eval_receipts() and baseline_report().
-    """
+def _compute_eval(output_dir: Path, gt_dir: Path = GROUND_TRUTH_DIR):
+    """Score every output/<stem>.json against ground_truth/<stem>.json."""
     header = ("Image", "GT items", "Store", "Date", "Lat", "Lon",
               "Items", "Name match", "Price match", "Amount match", "Score")
-    check  = lambda v: "✓" if v else "✗"
+    check = lambda v: "✓" if v else "✗"
 
     gt_files = {p.stem: p for p in gt_dir.glob("*.json")} if gt_dir.exists() else {}
     rows, scores = [], []
 
     for stem, gt_path in sorted(gt_files.items()):
-        out_path = output_dir / (stem + ".json")
         gt_text = gt_path.read_text(encoding="utf-8").strip()
         if not gt_text:
             continue
-        raw_truth  = json.loads(gt_text)
-        tru_list   = raw_truth if isinstance(raw_truth, list) else [raw_truth]
-        gt_item_count = len(tru_list)
+        tru_list = json.loads(gt_text)
+        if not isinstance(tru_list, list):
+            tru_list = [tru_list]
+        gt_n = len(tru_list)
+
+        out_path = output_dir / (stem + ".json")
         if not out_path.exists():
-            rows.append((stem + ".jpg", gt_item_count, "—", "—", "—", "—", "—", "—", "—", "—", "no output"))
+            rows.append((stem + ".jpg", gt_n, "—", "—", "—", "—", "—", "—", "—", "—", "no output"))
             continue
         out_text = out_path.read_text(encoding="utf-8").strip()
         if not out_text:
-            rows.append((stem + ".jpg", gt_item_count, "—", "—", "—", "—", "—", "—", "—", "—", "empty output"))
+            rows.append((stem + ".jpg", gt_n, "—", "—", "—", "—", "—", "—", "—", "—", "empty output"))
             continue
-        raw_output = json.loads(out_text)
-        out_list   = raw_output if isinstance(raw_output, list) else [raw_output]
+
+        out_list = json.loads(out_text)
+        if not isinstance(out_list, list):
+            out_list = [out_list]
         s = _score_receipt(out_list, tru_list)
         scores.append(s["overall"])
         rows.append((
-            stem + ".jpg",
-            gt_item_count,
-            check(s["storeName"]),
-            check(s["purchaseDate"]),
-            check(s["latitude"]),
-            check(s["longitude"]),
+            stem + ".jpg", gt_n,
+            check(s["storeName"]), check(s["purchaseDate"]),
+            check(s["latitude"]),  check(s["longitude"]),
             check(s["totalItems"]),
-            s["item_name_match"],
-            s["item_price_match"],
-            s["item_amount_match"],
+            s["item_name_match"], s["item_price_match"], s["item_amount_match"],
             f"{s['overall']}%",
         ))
     return header, rows, scores
@@ -556,9 +208,7 @@ def _compute_eval(output_dir: Path = OUTPUT_DIR, gt_dir: Path = GROUND_TRUTH_DIR
 def eval_receipts(output_dir: Path = OUTPUT_DIR, gt_dir: Path = GROUND_TRUTH_DIR):
     """
     Compare output against ground_truth/ — field by field per receipt.
-    If provider subdirectories exist (output/openrouter/, output/clod/),
-    evaluates each provider separately. Otherwise falls back to output_dir directly.
-    Prints a summary table and saves a report to reports/eval_<ts>.md.
+    Evaluates each provider subdirectory separately if present.
     """
     if not gt_dir.exists() or not any(gt_dir.glob("*.json")):
         print(f"No ground truth files found in {gt_dir}/")
@@ -568,9 +218,11 @@ def eval_receipts(output_dir: Path = OUTPUT_DIR, gt_dir: Path = GROUND_TRUTH_DIR
     dirs_to_eval  = provider_dirs if provider_dirs else [output_dir]
 
     REPORTS_DIR.mkdir(exist_ok=True)
-    ts       = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    md_lines = ["# GatherYourDeals ETL — Eval Report",
-                f"_Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_", ""]
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    md_lines = [
+        "# GatherYourDeals ETL — Eval Report",
+        f"_Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_", "",
+    ]
 
     for d in dirs_to_eval:
         header, rows, scores = _compute_eval(d, gt_dir)
@@ -588,9 +240,12 @@ def eval_receipts(output_dir: Path = OUTPUT_DIR, gt_dir: Path = GROUND_TRUTH_DIR
         if scores:
             print(f"Avg score: {sum(scores)/len(scores):.1f}%  "
                   f"(min {min(scores):.1f}%  max {max(scores):.1f}%)  over {len(scores)} receipts")
-        md_lines += [f"## {label}", "",
-                     "| " + " | ".join(header) + " |",
-                     "| " + " | ".join("-" * len(h) for h in header) + " |"]
+
+        md_lines += [
+            f"## {label}", "",
+            "| " + " | ".join(header) + " |",
+            "| " + " | ".join("-" * len(h) for h in header) + " |",
+        ]
         for row in rows:
             md_lines.append("| " + " | ".join(str(c) for c in row) + " |")
         if scores:
@@ -601,109 +256,82 @@ def eval_receipts(output_dir: Path = OUTPUT_DIR, gt_dir: Path = GROUND_TRUTH_DIR
     print(f"\nEval report → {md_path}")
 
 
-
 # ---------------------------------------------------------------------------
-# Baseline Report — structured experiment report in the style of the team's
-# weekly reports (environment + summary + provider tables + cost + findings)
+# Baseline Report — cost + latency + correctness across all providers
 # ---------------------------------------------------------------------------
 def baseline_report():
     """
-    Generate a single structured baseline experiment report covering all
-    pipeline providers: Azure DI (OCR) + all LLM providers run during the
-    experiment (CLOD/Qwen2.5-7B-Instruct-Turbo, CLOD/gemma-3n-E4B-it).
-    # OpenRouter providers commented out — not in use during this experiment.
+    Generate a structured baseline experiment report covering:
+      - Azure DI (OCR): latency and cost
+      - LLM providers (CLOD/Qwen, CLOD/Gemma): latency, cost, and field accuracy
 
-    Scoped to the experiment window (.baseline_start) so historical runs
-    don't pollute the report. Saved to reports/baseline_<ts>.md
+    Scoped to the experiment window recorded in .baseline_start.
+    Saved to reports/baseline_<ts>.md
     """
-    # Load start timestamp written by run_baseline.sh
     start_file = Path(".baseline_start")
     if not start_file.exists():
-        print("No .baseline_start file found. Run:  bash run_baseline.sh")
+        print("No .baseline_start file found. Run:  bash scripts/run_baseline.sh")
         return
     experiment_start = start_file.read_text().strip()
 
-    # Load all log entries and scope to this experiment only (time >= experiment_start)
-    all_entries = []
-    for f in sorted(LOGS_DIR.glob("etl_*.jsonl")):
-        for line in f.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                try:
-                    all_entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-
+    all_entries = _load_log_entries()
     entries     = [e for e in all_entries if e.get("time", "") >= experiment_start]
     adi_entries = [e for e in entries if e.get("event") == "adi_ocr"]
     llm_entries = [e for e in entries if e.get("event") == "llm_extraction"]
 
     if not llm_entries and not adi_entries:
-        print("No log entries found for this experiment. Run:  bash run_baseline.sh")
+        print("No log entries found for this experiment. Run:  bash scripts/run_baseline.sh")
         return
 
-    # --- Scope to the 3 most recent *complete* trace_ids per provider ---
-    # A complete trace_id covers all receipts in the experiment (count >= receipt_count).
-    # Single-receipt ad-hoc runs that happen to fall inside the experiment window are excluded.
+    # Scope to the most recent complete trace_id(s) per provider.
+    # A complete trace covers all receipts (count >= modal run size).
     _RUNS_PER_PROVIDER = 3
-    _trace_prov_model: dict[str, tuple[str, str]] = {}
-    _trace_cnt:  dict[str, int] = defaultdict(int)
-    _trace_last: dict[str, str] = defaultdict(str)
+    _trace_prov: dict[str, tuple[str, str]] = {}
+    _trace_cnt:  dict[str, int]  = defaultdict(int)
+    _trace_last: dict[str, str]  = defaultdict(str)
     for e in llm_entries:
         tid = e.get("trace_id", "")
-        _trace_prov_model[tid] = (e.get("llm_provider", "?"), e.get("llm_model", "?"))
+        _trace_prov[tid] = (e.get("llm_provider", "?"), e.get("llm_model", "?"))
         _trace_cnt[tid] += 1
         t = e.get("time", "")
         if t > _trace_last[tid]:
             _trace_last[tid] = t
-    # Threshold = modal count across all traces (the most common run size).
-    # This handles Receipts/ containing more files than were actually processed
-    # (e.g. images without ground truth, or new receipts added after the run).
-    if _trace_cnt:
+
+    try:
         from statistics import mode as _mode
-        try:
-            _receipts_in_dir = _mode(_trace_cnt.values())
-        except Exception:
-            _receipts_in_dir = max(_trace_cnt.values())
-    else:
-        _receipts_in_dir = 1
-    # Group by (provider, model) so multiple models on the same provider each get 3 runs
-    _complete_by_prov: dict[tuple, list[tuple[str, str]]] = defaultdict(list)
+        _run_size = _mode(_trace_cnt.values())
+    except Exception:
+        _run_size = max(_trace_cnt.values()) if _trace_cnt else 1
+
+    _complete_by_prov: dict[tuple, list] = defaultdict(list)
     for tid, cnt in _trace_cnt.items():
-        if cnt >= _receipts_in_dir:
-            _complete_by_prov[_trace_prov_model[tid]].append((_trace_last[tid], tid))
+        if cnt >= _run_size:
+            _complete_by_prov[_trace_prov[tid]].append((_trace_last[tid], tid))
+
     _valid_tids: set[str] = set()
-    for _plist in _complete_by_prov.values():
-        _plist.sort(reverse=True)
-        for _, tid in _plist[:_RUNS_PER_PROVIDER]:
+    for plist in _complete_by_prov.values():
+        plist.sort(reverse=True)
+        for _, tid in plist[:_RUNS_PER_PROVIDER]:
             _valid_tids.add(tid)
+
     llm_entries = [e for e in llm_entries if e.get("trace_id") in _valid_tids]
     adi_entries = [e for e in adi_entries if e.get("trace_id") in _valid_tids]
 
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    ts      = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    now_str  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    ts       = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # ---- ADI summary ----
+    # --- ADI summary ---
     adi_ok   = [e for e in adi_entries if e.get("ocr_success")]
     adi_lats = sorted(e.get("ocr_latency_ms", 0) for e in adi_ok)
-    adi_chars = [e.get("chars_extracted") for e in adi_ok if e.get("chars_extracted")]
-    adi_cost  = sum(e.get("cost_usd", 0) for e in adi_entries)
-    adi_avg   = statistics.mean(adi_lats) if adi_lats else 0
-    adi_p50   = statistics.median(adi_lats) if adi_lats else 0
-    adi_p95   = adi_lats[min(int(0.95 * len(adi_lats)), len(adi_lats) - 1)] if adi_lats else 0
-    adi_chars_avg = f"{statistics.mean(adi_chars):,.0f}" if adi_chars else "—"
+    adi_chars_vals = [e.get("chars_extracted") for e in adi_ok if e.get("chars_extracted")]
+    adi_cost = sum(e.get("cost_usd", 0) for e in adi_entries)
+    adi_avg  = statistics.mean(adi_lats)    if adi_lats else 0
+    adi_p50  = statistics.median(adi_lats)  if adi_lats else 0
+    adi_p95  = adi_lats[min(int(0.95 * len(adi_lats)), len(adi_lats) - 1)] if adi_lats else 0
+    adi_chars_avg = f"{statistics.mean(adi_chars_vals):,.0f}" if adi_chars_vals else "—"
 
-    # ---- LLM summary per provider ----
-    providers: dict[tuple, list] = defaultdict(list)
-    for e in llm_entries:
-        key = (e.get("llm_provider", "?"), e.get("llm_model", "?"))
-        providers[key].append(e)
-
-    receipts_dir = Path("Receipts")
-    receipt_count = len([f for f in receipts_dir.iterdir()
-                         if f.suffix.lower() in IMAGE_EXTS]) if receipts_dir.exists() else "?"
-
-    # ---- Ground truth correctness ----
+    # --- Ground truth item counts ---
     gt_counts: dict[str, int] = {}
     if GROUND_TRUTH_DIR.exists():
         for f in GROUND_TRUTH_DIR.glob("*.json"):
@@ -712,49 +340,56 @@ def baseline_report():
             except Exception:
                 pass
 
-    # ---- Pipeline complete events (end-to-end latency + failure rate) ----
-    # Also scoped to valid trace_ids so E2E latency matches the same 27-run dataset
+    receipts_dir  = Path("Receipts")
+    receipt_count = len([f for f in receipts_dir.iterdir() if f.suffix.lower() in IMAGE_EXTS]) \
+                    if receipts_dir.exists() else "?"
+
+    # --- Pipeline E2E latency ---
     pipeline_entries = [e for e in entries
                         if e.get("event") == "pipeline_complete"
                         and e.get("trace_id") in _valid_tids]
-    pipeline_by_provider: dict[tuple, list] = defaultdict(list)
+    pipeline_by_prov: dict[tuple, list] = defaultdict(list)
     for e in pipeline_entries:
-        key = (e.get("llm_provider", ""), e.get("llm_model", ""))
-        pipeline_by_provider[key].append(e)
+        pipeline_by_prov[(e.get("llm_provider", ""), e.get("llm_model", ""))].append(e)
 
-    # ---- Build provider rows ----
+    # --- Provider rows ---
+    providers: dict[tuple, list] = defaultdict(list)
+    for e in llm_entries:
+        providers[(e.get("llm_provider", "?"), e.get("llm_model", "?"))].append(e)
+
     provider_rows = []
     for (prov, model), es in sorted(providers.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "")):
-        ok_es  = [e for e in es if e.get("llm_success")]
-        lats   = sorted(e.get("llm_latency_ms", 0) for e in ok_es)
-        n      = len(ok_es)
+        ok_es = [e for e in es if e.get("llm_success")]
+        lats  = sorted(e.get("llm_latency_ms", 0) for e in ok_es)
+        n     = len(ok_es)
         if not lats:
             continue
-        avg_lat = statistics.mean(lats)
-        p50_lat = statistics.median(lats)
-        p95_lat = lats[min(int(0.95 * n), n - 1)]
-        avg_in  = statistics.mean(e.get("llm_input_tokens", 0)  for e in ok_es)
-        avg_out = statistics.mean(e.get("llm_output_tokens", 0) for e in ok_es)
+
+        avg_lat    = statistics.mean(lats)
+        p50_lat    = statistics.median(lats)
+        p95_lat    = lats[min(int(0.95 * n), n - 1)]
+        avg_in     = statistics.mean(e.get("llm_input_tokens",  0) for e in ok_es)
+        avg_out    = statistics.mean(e.get("llm_output_tokens", 0) for e in ok_es)
+        chars_vals = [e.get("llm_input_chars") for e in ok_es if e.get("llm_input_chars") is not None]
+        avg_chars  = f"{statistics.mean(chars_vals):,.0f}" if chars_vals else "—"
+        cost_sources = set(e.get("llm_cost_source", "unknown") for e in ok_es)
+        cost_src_label = "api" if cost_sources == {"api"} else "est" if "api" not in cost_sources else "mixed"
         total_cost = sum(e.get("llm_cost_usd", 0) for e in ok_es)
         cost_per   = total_cost / n if n else 0
 
-        # end-to-end latency from pipeline_complete events
-        pe = pipeline_by_provider.get((prov, model), [])
-        ok_pe = [e for e in pe if e.get("success")]
+        pe      = pipeline_by_prov.get((prov, model), [])
+        ok_pe   = [e for e in pe if e.get("success")]
         e2e_lats = sorted(e.get("total_latency_ms", 0) for e in ok_pe)
         if e2e_lats:
-            e2e_p50 = f"{statistics.median(e2e_lats):,.0f}"
-            e2e_p95 = f"{e2e_lats[min(int(0.95 * len(e2e_lats)), len(e2e_lats) - 1)]:,.0f}"
+            e2e_p50    = f"{statistics.median(e2e_lats):,.0f}"
+            e2e_p95    = f"{e2e_lats[min(int(0.95 * len(e2e_lats)), len(e2e_lats) - 1)]:,.0f}"
             throughput = f"~{60_000 / statistics.median(e2e_lats):.0f}/min"
         else:
             e2e_p50 = e2e_p95 = throughput = "—"
 
-        # failure rate
-        errors     = len(es) - len(ok_es)
-        total_calls = len(es)
-        fail_rate  = f"{errors}/{total_calls} ({100*errors/total_calls:.0f}%)" if total_calls else "—"
+        errors    = len(es) - len(ok_es)
+        fail_rate = f"{errors}/{len(es)} ({100*errors/len(es):.0f}%)" if es else "—"
 
-        # correctness
         by_receipt: dict[str, list] = defaultdict(list)
         for e in ok_es:
             by_receipt[e.get("image_name", "")].append(e.get("items_extracted", 0))
@@ -768,100 +403,49 @@ def baseline_report():
                 checked += 1
 
         provider_rows.append({
-            "provider":    prov,
-            "model":       model.split("/")[-1],
-            "receipts":    len(by_receipt),
-            "fail_rate":   fail_rate,
-            "e2e_p50":     e2e_p50,
-            "e2e_p95":     e2e_p95,
-            "throughput":  throughput,
-            "avg_lat":     f"{avg_lat:,.0f}",
-            "p50_lat":     f"{p50_lat:,.0f}",
-            "p95_lat":     f"{p95_lat:,.0f}",
-            "avg_in":      f"{avg_in:,.0f}",
-            "avg_out":     f"{avg_out:,.0f}",
-            "cost_per":    f"${cost_per:.4f}" if cost_per > 0 else "$0.00",
-            "total_cost":  f"${total_cost:.4f}",
-            "correct":     f"{correct}/{checked}" if checked else "—",
+            "provider":   prov,
+            "model":      model.split("/")[-1],
+            "receipts":   len(by_receipt),
+            "fail_rate":  fail_rate,
+            "e2e_p50":    e2e_p50,
+            "e2e_p95":    e2e_p95,
+            "throughput": throughput,
+            "p50_lat":    f"{p50_lat:,.0f}",
+            "p95_lat":    f"{p95_lat:,.0f}",
+            "avg_lat":    f"{avg_lat:,.0f}",
+            "avg_in":     f"{avg_in:,.0f}",
+            "avg_out":    f"{avg_out:,.0f}",
+            "avg_chars":  avg_chars,
+            "cost_per":   f"${cost_per:.4f}" if cost_per > 0 else "$0.00",
+            "cost_src":   cost_src_label,
+            "total_cost": f"${total_cost:.4f}",
+            "correct":    f"{correct}/{checked}" if checked else "—",
         })
 
-    # ---- Findings ----
+    # --- Findings ---
     findings = []
     if len(provider_rows) >= 2:
-        r = provider_rows
-        faster  = min(r, key=lambda x: float(x["e2e_p50"].replace(",", "")) if x["e2e_p50"] != "—" else float(x["p50_lat"].replace(",", "")))
-        cheaper = min(r, key=lambda x: float(x["cost_per"].replace("$", "")))
-        others  = [x for x in r if x != faster]
-
-        # Latency ranking — show all providers sorted by E2E P50
-        sorted_r = sorted(r, key=lambda x: float(x["e2e_p50"].replace(",", "")) if x["e2e_p50"] != "—" else float(x["p50_lat"].replace(",", "")))
-        latency_list = ", ".join(f"{x['provider']}/{x['model']} {x['e2e_p50']} ms" for x in sorted_r)
-        findings.append(f"- **E2E P50 latency (fastest → slowest):** {latency_list}")
-
-        throughput_list = ", ".join(f"{x['provider']}/{x['model']} ~{x['throughput']}" for x in sorted_r)
-        findings.append(f"- **Throughput:** {throughput_list}")
-
-        findings.append(f"- **Lower cost/receipt:** {cheaper['provider']} / {cheaper['model']} "
-                        f"({cheaper['cost_per']})")
-
-        # Primary = fastest; fallbacks = all others ranked by latency
-        primary = faster
-        findings.append(f"- **Recommended primary:** {primary['provider']} / {primary['model']} "
-                        f"— lowest egress latency")
-        for fb in others:
-            findings.append(f"- **Fallback:** {fb['provider']} / {fb['model']} "
-                            f"— viable alternative if primary is unavailable")
-    elif len(provider_rows) == 1:
+        sorted_r = sorted(provider_rows,
+                          key=lambda x: float(x["e2e_p50"].replace(",", ""))
+                          if x["e2e_p50"] != "—" else float(x["p50_lat"].replace(",", "")))
+        findings.append("- **E2E P50 latency (fastest → slowest):** " +
+                        ", ".join(f"{r['provider']}/{r['model']} {r['e2e_p50']} ms" for r in sorted_r))
+        findings.append("- **Throughput:** " +
+                        ", ".join(f"{r['provider']}/{r['model']} {r['throughput']}" for r in sorted_r))
+        cheaper = min(provider_rows, key=lambda x: float(x["cost_per"].replace("$", "")))
+        findings.append(f"- **Lowest cost/receipt:** {cheaper['provider']} / {cheaper['model']} ({cheaper['cost_per']})")
+        primary = sorted_r[0]
+        findings.append(f"- **Recommended primary:** {primary['provider']} / {primary['model']} — lowest egress latency")
+        for fb in sorted_r[1:]:
+            findings.append(f"- **Fallback:** {fb['provider']} / {fb['model']} — viable alternative if primary is unavailable")
+    elif provider_rows:
         r = provider_rows[0]
-        findings.append(f"- Only one provider run found ({r['provider']} / {r['model']}). "
-                        f"Run all providers to get comparison findings.")
+        findings.append(f"- Only one provider ({r['provider']} / {r['model']}). Run all providers for comparison findings.")
 
-    # ---- Assemble markdown ----
+    # --- Markdown assembly ---
     md = [
         "# GatherYourDeals ETL — Baseline Experiment Report",
         f"_Generated: {now_str}_",
-        "",
-        "## Summary",
-        "",
-        f"Baseline egress measurement for the ETL pipeline across all provider dependencies. "
-        f"{receipt_count} receipts processed through Azure Document Intelligence (OCR) "
-        f"and {len(provider_rows)} LLM provider(s).",
-        "",
-        "This experiment is intentionally sequential and quality-focused — not a concurrency stress test. "
-        "LLM providers impose per-token costs and rate limits that make concurrent load testing inappropriate "
-        "and expensive for this component. The right lens for LLM evaluation is test case quality and "
-        "cost-per-call, not infrastructure throughput. Concurrency stress testing belongs to the data "
-        "service layer, where requests are cheap and the bottleneck is server resources.",
-        "",
-        "## Metrics Gathered",
-        "",
-        "The following metrics are collected per receipt per provider to evaluate quality, latency, and cost:",
-        "",
-        "| Metric | Source | Purpose |",
-        "|--------|--------|---------|",
-        "| E2E P50 / P95 latency (ms) | `pipeline_complete` | True wall time from image in to JSON out |",
-        "| LLM P50 / P95 latency (ms) | `llm_extraction` | Egress round-trip to LLM provider |",
-        "| ADI P50 / P95 latency (ms) | `adi_ocr` | Egress round-trip to Azure Document Intelligence |",
-        "| Input / output tokens | `llm_extraction` | Payload size — explains latency and cost variance |",
-        "| Cost per receipt (USD) | `llm_extraction` | Real billed cost or token-based estimate |",
-        "| Failure rate | `llm_extraction` | Provider reliability — failed calls / total calls |",
-        "| Throughput (receipts/min) | Derived from E2E P50 | Sustained processing capacity |",
-        "| Items extracted | `llm_extraction` | Output correctness proxy — expected vs actual count |",
-        "| Field-level accuracy (0–100%) | `--eval` | Per-field scoring: store, date, price, item name/price match |",
-        "",
-        "## Repeated Trials",
-        "",
-        "Each receipt was processed multiple times per provider (~3 runs) to account for variability in:",
-        "",
-        "- Network latency",
-        "- OCR processing time",
-        "- LLM response time",
-        "",
-        f"This increases the number of observations from {receipt_count} to ~{receipt_count * 3} per provider, "
-        "improving the reliability of latency and cost estimates.",
-        "",
-        "Per-receipt entries shown in the report include repeated runs to capture this variance, "
-        "while summary metrics (P50, P95, averages) are computed across all runs.",
         "",
         "## Environment",
         "",
@@ -878,7 +462,7 @@ def baseline_report():
 
     md += [
         "",
-        "## OCR Provider — Azure Document Intelligence",
+        "## OCR — Azure Document Intelligence",
         "",
         "| Metric | Value |",
         "|--------|-------|",
@@ -886,51 +470,55 @@ def baseline_report():
         f"| Avg latency | {adi_avg:,.0f} ms |",
         f"| P50 latency | {adi_p50:,.0f} ms |",
         f"| P95 latency | {adi_p95:,.0f} ms |",
-        f"| Avg OCR chars extracted | {adi_chars_avg} |",
+        f"| Avg chars extracted | {adi_chars_avg} |",
         f"| Estimated cost | ${adi_cost:.4f} (F0 free tier — 500 pages/month) |",
         "",
         "## LLM Provider Comparison",
         "",
-        "| Provider | Model | Receipts | Fail rate | E2E P50 (ms) | E2E P95 (ms) | Throughput | LLM P50 (ms) | LLM P95 (ms) | Avg lat (ms) | Avg in tok | Avg out tok | Cost/receipt | Total cost | Item count match |",
-        "|----------|-------|:--------:|:---------:|-------------:|-------------:|:----------:|-------------:|-------------:|-------------:|-----------:|------------:|-------------:|:----------:|:----------------:|",
+        "| Provider | Model | Receipts | Fail rate | E2E P50 (ms) | E2E P95 (ms) | Throughput | LLM P50 (ms) | LLM P95 (ms) | Avg lat (ms) | Avg in tok | Avg out tok | Avg in chars | Cost/receipt | Cost src | Total cost | Item count match |",
+        "|----------|-------|:--------:|:---------:|-------------:|-------------:|:----------:|-------------:|-------------:|-------------:|-----------:|------------:|-------------:|-------------:|:--------:|:----------:|:----------------:|",
     ]
     for row in provider_rows:
         md.append(
             f"| {row['provider']} | {row['model']} | {row['receipts']} | {row['fail_rate']} "
             f"| {row['e2e_p50']} | {row['e2e_p95']} | {row['throughput']} "
             f"| {row['p50_lat']} | {row['p95_lat']} | {row['avg_lat']} "
-            f"| {row['avg_in']} | {row['avg_out']} "
-            f"| {row['cost_per']} | {row['total_cost']} | {row['correct']} |"
+            f"| {row['avg_in']} | {row['avg_out']} | {row['avg_chars']} "
+            f"| {row['cost_per']} | {row['cost_src']} | {row['total_cost']} | {row['correct']} |"
         )
     md.append("")
-    md.append("_Item count match: a receipt is counted as correct if the most common (modal) item count across all runs equals the ground-truth count._")
+    md.append("_Item count match: modal item count across runs equals ground-truth count._")
 
     md += [
         "",
         "## Per-Receipt Breakdown",
         "",
-        "| Receipt | OCR chars | ADI (ms) | Provider | Model | In tok | Out tok | Cost | LLM (ms) | Items extracted | Items expected | API |",
-        "|---------|----------:|---------:|----------|-------|-------:|--------:|-----:|---------:|----------------:|:--------------:|:---:|",
+        "| Receipt | OCR chars | ADI (ms) | Provider | Model | In tok | Out tok | In chars | Prompt | Cost | Cost src | LLM (ms) | Items | GT | API |",
+        "|---------|----------:|---------:|----------|-------|-------:|--------:|---------:|--------|-----:|:--------:|---------:|------:|:--:|:---:|",
     ]
-    # Key by (image_name, trace_id) so each LLM entry is matched to its own ADI call
     adi_by_key = {(e.get("image_name"), e.get("trace_id")): e for e in adi_entries}
-    _OUTLIER_MS = 60_000  # flag LLM calls longer than 60 s as anomalous
+    _OUTLIER_MS = 60_000
     for e in llm_entries:
         name  = e.get("image_name", "?")
         adi   = adi_by_key.get((name, e.get("trace_id")), {})
-        api   = "✓" if e.get("llm_success") else "✗"
-        chars = adi.get("chars_extracted") or "—"
+        ocr_chars = adi.get("chars_extracted") or "—"
         model_short = (e.get("llm_model") or "?").split("/")[-1]
         llm_lat = e.get("llm_latency_ms", 0)
         lat_str = f"{llm_lat:.0f} ⚠" if llm_lat > _OUTLIER_MS else f"{llm_lat:.0f}"
-        items = e.get("items_extracted", 0)
-        gt_n  = gt_counts.get(Path(name).stem)
+        items   = e.get("items_extracted", 0)
+        gt_n    = gt_counts.get(Path(name).stem)
         gt_match = ("✓" if items == gt_n else "✗") if gt_n is not None else "—"
+        api      = "✓" if e.get("llm_success") else "✗"
+        in_chars  = e.get("llm_input_chars")
+        in_chars_str = f"{in_chars:,}" if in_chars is not None else "—"
+        prompt_path  = e.get("llm_prompt_path") or "—"
+        cost_src     = e.get("llm_cost_source", "?")[:3]   # "api" or "est"
         md.append(
-            f"| {name} | {chars} | {adi.get('ocr_latency_ms', 0):.0f} "
+            f"| {name} | {ocr_chars} | {adi.get('ocr_latency_ms', 0):.0f} "
             f"| {e.get('llm_provider', '?')} | {model_short} "
             f"| {e.get('llm_input_tokens', 0):,} | {e.get('llm_output_tokens', 0):,} "
-            f"| ${e.get('llm_cost_usd', 0):.6f} | {lat_str} "
+            f"| {in_chars_str} | {prompt_path} "
+            f"| ${e.get('llm_cost_usd', 0):.6f} | {cost_src} | {lat_str} "
             f"| {items} | {gt_match} | {api} |"
         )
 
@@ -948,15 +536,14 @@ def baseline_report():
     md += [
         f"| **Total** | | **${adi_cost + total_llm_cost:.4f}** |",
         "",
-        "_clod costs are taken directly from the API response and reflect whatever rate structure "
-        "the provider applies — individual figures cannot be independently verified from token counts alone._",
+        "_clod costs are taken directly from the API response and cannot be independently verified from token counts alone._",
         "",
         "## Findings",
         "",
     ]
     md += findings if findings else ["- Run both providers to generate findings."]
 
-    # ---- Field-level accuracy (eval) — per provider ----
+    # --- Field-level accuracy (correctness) ---
     def _output_slug(provider: str, model: str) -> str:
         return f"{provider}-{model.split('/')[-1].lower()}"
 
@@ -965,29 +552,25 @@ def baseline_report():
          OUTPUT_DIR / _output_slug(row["provider"], row["model"]))
         for row in provider_rows
     ]
-    any_eval = False
-    eval_md = ["", "## Field-Level Accuracy", "",
-               "Scores each provider's output against ground_truth/ — field by field per receipt.",
-               "Outputs are saved to model-specific directories (`output/<provider>-<model>/`) so each "
-               "provider/model combination can be evaluated independently on the same receipts.",
-               "Scores are computed against all ground-truth items; unmatched slots count as misses "
-               "(e.g. if 3 items are extracted vs. 4 expected, the 4th slot scores zero across name, price, and amount).",
-               "The **GT items** column shows the expected item count from ground truth for reference.",
-               "",
-               "**Scoring criteria (this version):** store name uses word-overlap matching "
-               "(any significant word >3 chars in common counts as a match); "
-               "lat/lon tolerance is 0.01° (~1.1 km, covers same-store geocoding variance). "
-               "If comparing scores across report versions, note that these criteria were updated "
-               "from earlier exact/substring matching — score increases may partly reflect the "
-               "updated criteria rather than model improvement alone.",
-               ""]
 
-    # prov -> {stem -> (matched, total)} for price match aggregation
+    eval_md = [
+        "", "## Field-Level Accuracy", "",
+        "Scores each provider's output against ground_truth/ field by field. "
+        "Scalar fields: store (word-overlap), date (exact), lat/lon (±0.01°), item count (exact). "
+        "Item fields: name/price/amount match rates over ground-truth items. "
+        "Weighting: 5 scalar fields = 5/8 of overall score; 3 item-rate fields = 3/8.",
+        "",
+        "**Scoring:** store uses word-overlap (any word >3 chars in common); "
+        "lat/lon tolerance 0.01° (~1.1 km).",
+        "",
+    ]
+
     price_stats: dict[str, dict[str, tuple[int, int]]] = {}
+    any_eval = False
 
-    for prov, prov_dir in provider_dirs:
+    for prov_label, prov_dir in provider_dirs:
         if not prov_dir.exists():
-            eval_md += [f"### {prov}", "", f"_No output directory found at `{prov_dir}/` — run the pipeline first._", ""]
+            eval_md += [f"### {prov_label}", "", f"_No output at `{prov_dir}/`_", ""]
             continue
         eval_header, eval_rows, eval_scores = _compute_eval(output_dir=prov_dir)
         if not eval_rows:
@@ -995,10 +578,8 @@ def baseline_report():
         any_eval = True
         avg = f"{sum(eval_scores)/len(eval_scores):.1f}%" if eval_scores else "—"
         eval_md += [
-            f"### {prov}",
-            "",
-            f"**Avg score: {avg}** over {len(eval_scores)} receipts",
-            "",
+            f"### {prov_label}", "",
+            f"**Avg score: {avg}** over {len(eval_scores)} receipts", "",
             "| " + " | ".join(eval_header) + " |",
             "| " + " | ".join("-" * len(h) for h in eval_header) + " |",
         ]
@@ -1017,39 +598,31 @@ def baseline_report():
                 except (ValueError, AttributeError):
                     pass
         eval_md.append("")
-        price_stats[prov] = prov_price
+        price_stats[prov_label] = prov_price
 
-    # Dynamic quality finding — summarise price match by provider and flag gaps
+    # Price match gap finding
     if len(price_stats) >= 1:
-        finding_lines = ["### Quality Finding: Price Extraction by Provider", ""]
-        # Overall price match rate per provider
-        prov_overall: dict[str, float] = {}
-        # slug -> "provider / model_short" display label
         slug_labels = {
             _output_slug(row["provider"], row["model"]): f"{row['provider']} / {row['model'].split('/')[-1]}"
             for row in provider_rows
         }
+        prov_overall: dict[str, float] = {}
         for prov, pdata in price_stats.items():
             total_num = sum(n for n, _ in pdata.values())
             total_den = sum(d for _, d in pdata.values())
             prov_overall[prov] = total_num / total_den if total_den else 0.0
 
-        # Overall price match rate — one bullet per provider, sorted best → worst
         sorted_provs = sorted(prov_overall, key=lambda p: prov_overall[p], reverse=True)
-        prov_summary = "  \n".join(
-            f"- **{slug_labels.get(p, p)}**: {prov_overall[p]*100:.0f}% overall price match"
+        finding_lines = ["### Quality Finding: Price Extraction by Provider", ""]
+        finding_lines.append("  \n".join(
+            f"- **{p}**: {prov_overall[p]*100:.0f}% overall price match"
             for p in sorted_provs
-        )
-        finding_lines.append(prov_summary)
+        ))
         finding_lines.append("")
 
-        # Per-receipt gap detection — check all pairs of providers
-        from itertools import combinations as _combos
-        gap_lines: list[str] = []
-        seen_gaps: set[str] = set()  # avoid duplicate stems across pairs
-        for prov_a, prov_b in _combos(sorted_provs, 2):
-            common = sorted(set(price_stats[prov_a]) & set(price_stats[prov_b]))
-            for stem in common:
+        gap_lines, seen_gaps = [], set()
+        for prov_a, prov_b in combinations(sorted_provs, 2):
+            for stem in sorted(set(price_stats[prov_a]) & set(price_stats[prov_b])):
                 na, da = price_stats[prov_a].get(stem, (0, 0))
                 nb, db = price_stats[prov_b].get(stem, (0, 0))
                 ra = na / da if da else 0.0
@@ -1057,35 +630,23 @@ def baseline_report():
                 if abs(ra - rb) >= 0.30 and stem not in seen_gaps:
                     seen_gaps.add(stem)
                     stronger, weaker = (prov_a, prov_b) if ra >= rb else (prov_b, prov_a)
-                    sr = max(ra, rb); wr = min(ra, rb)
                     gap_lines.append(
-                        f"- **{stem}:** {slug_labels.get(stronger, stronger)} {sr*100:.0f}% "
-                        f"vs {slug_labels.get(weaker, weaker)} {wr*100:.0f}%"
+                        f"- **{stem}:** {stronger} {max(ra,rb)*100:.0f}% "
+                        f"vs {weaker} {min(ra,rb)*100:.0f}%"
                     )
 
         if gap_lines:
-            weakest_prov  = min(prov_overall, key=lambda p: prov_overall[p])
-            strongest_prov = max(prov_overall, key=lambda p: prov_overall[p])
+            weakest  = min(prov_overall, key=lambda p: prov_overall[p])
+            strongest = max(prov_overall, key=lambda p: prov_overall[p])
             finding_lines += [
-                "Receipts with a ≥ 30 percentage-point price match gap:",
-                "",
+                "Receipts with a ≥ 30 percentage-point price match gap:", "",
             ] + gap_lines + [
                 "",
-                f"{slug_labels.get(weakest_prov, weakest_prov)} is extracting "
-                f"per-unit rates or subtotals instead of line-item totals on receipts that use a "
-                f"multi-column format (e.g. `qty × unit_price = line_total`). "
-                f"The explicit prompt rule (`price` = right-hand price column) did not resolve this. "
-                f"This is a model capability gap — {slug_labels.get(strongest_prov, strongest_prov)} "
-                f"handles multi-column layouts correctly because it is a stronger model.",
+                f"{weakest} is extracting per-unit rates or subtotals instead of line-item totals "
+                f"on multi-column receipts. "
+                f"{strongest} handles these layouts correctly.",
                 "",
-                f"The same layout confusion extends to the `amount` field on Costco: "
-                f"{slug_labels.get(weakest_prov, weakest_prov)} "
-                f"outputs barcode numbers and prices instead of unit quantities (e.g. `6000000000`, `5.49`), "
-                f"resulting in 0/15 amount match. This is not a ground-truth or prompt change — "
-                f"it reflects the same model capability gap on multi-column receipts.",
             ]
-
-        finding_lines.append("")
         eval_md += finding_lines
 
     if any_eval:
@@ -1098,21 +659,15 @@ def baseline_report():
 
 
 # ---------------------------------------------------------------------------
-# CLI — can also be run directly: python reporting.py --report
+# CLI
 # ---------------------------------------------------------------------------
 def main():
     p = argparse.ArgumentParser(description="GatherYourDeals ETL — Reporting")
-    p.add_argument("--report",          action="store_true", help="Generate cumulative usage report")
-    p.add_argument("--compare",         action="store_true", help="Generate per-model comparison table")
     p.add_argument("--eval",            action="store_true", help="Compare output/ against ground_truth/")
-    p.add_argument("--baseline-report", action="store_true", help="Generate structured baseline experiment report")
+    p.add_argument("--baseline-report", action="store_true", help="Generate baseline experiment report")
     args = p.parse_args()
 
-    if args.report:
-        report()
-    elif args.compare:
-        compare()
-    elif args.eval:
+    if args.eval:
         eval_receipts()
     elif args.baseline_report:
         baseline_report()

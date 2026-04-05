@@ -49,8 +49,17 @@ def log_adi(trace_id, image_name, user_id, image_size_bytes,
 def log_llm(trace_id, image_name, user_id, provider, model,
             input_tokens, output_tokens, cost_usd,
             latency_ms, items_extracted, success, error=None,
-            cost_source="unknown", latency_source="local"):
-    """Log one LLM structuring call (OpenRouter or CLOD)."""
+            cost_source="unknown", latency_source="local",
+            input_chars=None, prompt_path=None):
+    """Log one LLM structuring call (OpenRouter or CLOD).
+
+    input_chars  — chars of OCR content sent to the LLM (after all filtering /
+                   spatial stripping), excluding the system prompt.  Lets you
+                   track the impact of token reduction changes independently of
+                   the API-reported prompt_tokens (which include system prompt).
+    prompt_path  — which system prompt variant fired:
+                   "direct", "cot", "direct+costco", "cot+costco"
+    """
     _log({
         "time":                datetime.now(timezone.utc).isoformat(),
         "level":               "INFO" if success else "ERROR",
@@ -65,6 +74,8 @@ def log_llm(trace_id, image_name, user_id, provider, model,
         "llm_latency_source":  latency_source,
         "llm_input_tokens":    input_tokens,
         "llm_output_tokens":   output_tokens,
+        "llm_input_chars":     input_chars,
+        "llm_prompt_path":     prompt_path,
         "llm_cost_usd":        round(cost_usd, 8),
         "llm_cost_source":     cost_source,
         "llm_success":         success,

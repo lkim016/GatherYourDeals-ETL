@@ -41,8 +41,6 @@ POST /etl  { "source": "<image URL or local path>" }
                 Uploads structured items to the GYD data service via SDK
 ```
 
-**Baseline (9 receipts, 2026-03-30):** 9/9 OpenRouter · 9/9 CLOD · $0.1921 total (last run) · OpenRouter $0.0038/receipt · CLOD $0.0003/receipt
-
 ---
 
 ## Setup

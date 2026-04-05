@@ -27,12 +27,6 @@ Usage
   # With SDK upload
   python etl.py Receipts/2025-10-01Vons.jpg --user lkim016
 
-  # Generate usage report from JSONL logs
-  python etl.py --report
-
-  # Generate per-model comparison table (Test 2)
-  python etl.py --compare
-
   # Eval output/ against ground_truth/
   python etl.py --eval
 
@@ -69,6 +63,7 @@ import argparse
 import asyncio
 import json
 import re
+import statistics
 import sys
 import time
 import uuid
@@ -80,7 +75,7 @@ import os
 
 load_dotenv()
 
-from reporting import report, compare, eval_receipts, baseline_report  # noqa: E402 (after load_dotenv)
+from reporting import eval_receipts, baseline_report  # noqa: E402 (after load_dotenv)
 from etl_logger import (  # noqa: E402
     log_adi, log_llm, log_pipeline, log_upload, ADI_COST_PER_PAGE, LOGS_DIR,
 )
@@ -114,7 +109,7 @@ CLOD_DEFAULT_MODEL = os.getenv("CLOD_DEFAULT_MODEL", "google/gemma-3n-E4B-it")
 # API endpoints — read from env to allow routing to proxies or alternate regions
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 CLOD_API_URL        = os.getenv("CLOD_API_URL",        "https://api.clod.io/v1/chat/completions")
-AZURE_MAPS_URL      = os.getenv("AZURE_MAPS_URL",      "https://atlas.microsoft.com/search/address/json")
+AZURE_MAPS_URL      = os.getenv("AZURE_MAPS_URL",      "https://atlas.microsoft.com/search/fuzzy/json")
 
 # Operational constants
 _ADI_TIMEOUT_S  = int(os.getenv("AZURE_DI_TIMEOUT",  "120"))
@@ -128,6 +123,7 @@ OUTPUT_DIR       = Path("output")
 LOGS_DIR         = Path("logs")
 REPORTS_DIR      = Path("reports")
 GROUND_TRUTH_DIR = Path("ground_truth")
+OCR_CACHE_DIR    = Path("ocr_cache")
 
 # Registry that maps image stem → list of GYD receipt UUIDs created on upload.
 # Used by delete_uploaded() to find and remove records from the database.
@@ -135,6 +131,18 @@ _UPLOAD_REGISTRY = OUTPUT_DIR / ".upload_registry.json"
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".tiff", ".tif", ".bmp"}
+
+# When set to a Path, debug mode writes intermediate pipeline files there.
+# Set via --debug CLI flag; stays None in normal operation.
+DEBUG_DIR: Path | None = None
+
+def _dbg(stem: str, stage: str, text: str) -> None:
+    """Write one debug file if DEBUG_DIR is set. No-op otherwise."""
+    if DEBUG_DIR is None:
+        return
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    (DEBUG_DIR / f"{stem}.{stage}").write_text(text, encoding="utf-8")
+    print(f"  [DBG]  saved debug/{stem}.{stage}")
 
 # Enable Railtracks logging (writes to logs/rt.log + stdout at INFO level)
 if _RT_AVAILABLE:
@@ -167,7 +175,7 @@ Using the SPATIAL LAYOUT section (if present), reconstruct receipt rows first:
 - Each row follows: [L] ITEM NAME  [C] QTY (optional)  [R] PRICE
 - Prices are always right-aligned ([R] column) — never assign a [L] or [C] value as price
 - Quantities / weights are center-aligned ([C]) or follow the item name in [L]
-- [S] marks a store savings/discount row — its [R] value is a discount applied to the item in the [L] row immediately above it. Subtract it to get the final charged price (e.g. [R] 2.49 then [S][R] 0.50 → final price 1.99). Do NOT create a separate item for [S] rows.
+- [S] marks a store savings/discount row — its [R] or [C] value is a discount applied to the item in the [L] row immediately above it. Subtract it to get the final charged price (e.g. [R] 2.49 then [S][C] 0.50 → final price 1.99). Do NOT create a separate item for [S] rows. [S] rows always have raw_amount = null.
 - If no SPATIAL LAYOUT, use the markdown table rows
 
 Then list raw extracted values:
@@ -183,48 +191,9 @@ Then list raw extracted values:
 
 ## Output schema
 
-Required top-level fields (use null when not visible in the OCR text):
-  imageName     string   (caller injects — output null)
-  userName      string   (caller injects — output null)
-  storeName     string
-  storeAddress  string   IMPORTANT: copy the full street address from the receipt header
-                         (e.g. "123 Main St, Springfield, CA 90210"). Include street,
-                         city, state/province, and postal code if visible. Do NOT leave
-                         null unless the receipt truly has no address printed on it.
-  latitude      null     (injected by caller — always output null)
-  longitude     null     (injected by caller — always output null)
-  purchaseDate  string   format YYYY.MM.DD
-  purchaseTime  string   format HH:MM  (24-hour)
-  currency      string   "USD", "CAD", etc.
-  items         array    (see below)
-  totalItems    integer
-  subtotal      string   "X.XXUSD" — match currency of receipt
-  tax           string   same format, or null
-  total         string   same format, or null
-  paymentMethod string   or null
-
-Each element of items must have exactly these fields:
-  productName   string
-  itemCode      string or null   — UPC / item code printed next to the product
-  price         string   "X.XXUSD" — the FINAL charged price (after discounts), always include currency code
-  amount        string   — quantity or weight. Use ONLY these unit labels (US/Canada standard):
-                             Weight:  lb, lbs, oz, kg, g
-                             Volume:  fl oz, gal, qt, pt, L, mL
-                             Count:   just the bare number, no unit (e.g. "1", "2", "3")
-                           Strip any label not in this list — "W", "EA", "PK", "F", or any
-                           non-measurement code — and output only the numeric value.
-                           NEVER put a dollar amount in this field.
-  category      string or null   — department label printed on the receipt (e.g. "Grocery", "Produce")
-
-## Output schema (place inside <json> tags)
-
 {
-  "imageName":     null,
-  "userName":      null,
   "storeName":     string | null,
   "storeAddress":  string | null,
-  "latitude":      null,
-  "longitude":     null,
   "purchaseDate":  string | null,
   "purchaseTime":  string | null,
   "currency":      string | null,
@@ -254,12 +223,53 @@ Each element of items must have exactly these fields:
   - Sale/discount modifier lines: lines like "(SALE)", "MEMBER SAVINGS", "INSTANT SAVINGS", "DIGITAL COUPON", "PRICE REDUCTION" that appear below an item and modify its price — do not extract these as separate items.
   - Never create placeholder items like "Item 1", "Item 2", "Item 3". If you cannot identify a clear product name from the spatial layout, skip that row entirely.
 - storeName must be the store's brand/chain name as printed on the receipt header (e.g. "Costco Wholesale", "Your Independent Grocer", "T&T Supermarket"). Do not append address, city, or branch details.
-- purchaseDate must be the transaction date, formatted YYYY.MM.DD. If the year looks implausible (before 2020) you are likely reading a receipt number, time, or barcode — re-examine the receipt for the correct date.
-- price is the total amount charged for that line item as shown in the right-hand price column. Do not use per-unit rates, per-oz prices, or any divided amount. Always include the currency code: "4.79USD" not "4.79".
+- purchaseDate must be the transaction date, formatted YYYY.MM.DD. If the year looks implausible (before 2020) you are likely reading a receipt number, time, or barcode — re-examine the receipt for the correct date. When multiple dates appear (e.g. a transaction date and a promotion end date), prefer the date that is immediately paired with a transaction time (HH:MM or HH:MM:SS) — that pairing identifies the actual transaction timestamp.
+- price is the total amount charged for that line item as shown in the right-hand price column. Do not use per-unit rates, per-oz prices, or any divided amount. Always include the currency code: "4.79USD" not "4.79". When a receipt prints two price values per line (e.g. a regular "Price" column and a "You Pay" or "Sale" column), use the amount actually charged — the lower value or the one marked with S, "You Pay", or "Sale". Exception — [C] column prices: if an item has a value in [C] but no [R] value, and the receipt consistently shows no right-hand price column at all, treat the [C] value as the price.
 - amount is a count or weight only — never a price. Strip unrecognised unit codes down to the bare number.
 - Weight-priced items: some receipts print "1.160 kg @ $1.72/kg  2.00" — set amount to the weight ("1.160kg") and price to the total charged ("2.00CAD"), not the per-kg rate.
 - If a markdown table is present, each row is one line item — do not merge or split rows.
-- Column anchoring: each receipt row follows [ITEM NAME] [QTY optional] [PRICE]. Prices are always right-aligned — do not assign a left- or center-column value as a price. Do not assign a right-column value as a quantity.
+- Column anchoring: each receipt row follows [ITEM NAME] [QTY optional] [PRICE]. Prices are typically right-aligned — do not assign a [L] value as a price, and do not assign a [R] value as a quantity. If no [R] price column exists for any row in the receipt, a [C] value may be the price (see price rule above).
+
+## Handling ambiguity
+
+- If multiple candidate values exist for the same field (e.g. two dates, two totals), choose the most recent or most prominent one.
+- If confidence in a field value is low — the text is unclear, partially obscured, or contradictory — return null rather than guessing.
+- Do not fabricate or infer values that are not explicitly present in the OCR text. If a field is not visible, output null."""
+
+# Leaner prompt — no chain-of-thought scaffolding.
+# Used for simple (single-chunk, spatial-layout) receipts to cut output tokens
+# by ~70%.  Identical rules to _SYSTEM_PROMPT; only the <spans>/<extract>/<json>
+# thinking scaffold is removed.
+_COT_SECTION = (
+    "\n## Extraction process\n\n"
+    "Work through the receipt in three steps. Show your work in the tagged sections "
+    "below, then output the final JSON. This reduces errors on messy receipts.\n\n"
+    "<spans>\nQuote verbatim from the OCR text:\n"
+    "- HEADER: the store name, address, and date/time block\n"
+    "- ITEMS: every product line item row exactly as printed\n"
+    "- TOTALS: subtotal, tax, total, and payment lines\n"
+    "</spans>\n\n"
+    "<extract>\nUsing the SPATIAL LAYOUT section (if present), reconstruct receipt rows first:\n"
+    "- Each row follows: [L] ITEM NAME  [C] QTY (optional)  [R] PRICE\n"
+    "- Prices are right-aligned ([R] column) in most receipts — do not assign [L] values as price. Exception: if no [R] price column exists at all and an item has only a [C] value, that [C] value is the price.\n"
+    "- When a line shows two [R] prices (regular + sale/You Pay), use the charged amount — the one marked S, 'You Pay', or 'Sale', typically the lower value.\n"
+    "- Quantities / weights are center-aligned ([C]) or follow the item name in [L]\n"
+    "- [S] marks a store savings/discount row — its [R] or [C] value is a discount applied to the item "
+    "in the [L] row immediately above it. Subtract it to get the final charged price "
+    "(e.g. [R] 2.49 then [S][C] 0.50 → final price 1.99). Do NOT create a separate item for [S] rows. "
+    "[S] rows always have raw_amount = null.\n"
+    "- If no SPATIAL LAYOUT, use the markdown table rows\n\n"
+    "Then list raw extracted values:\n"
+    "- date: <raw date string>\n"
+    "- time: <raw time string>\n"
+    "- currency: <symbol or code found>\n"
+    "- For each item row: productName | itemCode | raw_price | raw_amount | category\n"
+    "</extract>\n\n"
+    "<json>\n{final normalized JSON conforming to the schema below}\n</json>\n\n"
+)
+_SYSTEM_PROMPT_DIRECT = _SYSTEM_PROMPT.replace(_COT_SECTION, "")
+
+_COSTCO_PROMPT_ADDENDUM = """\
 
 ## Costco receipt rules
 
@@ -267,17 +277,17 @@ Each element of items must have exactly these fields:
 - Price letter suffixes: Costco appends a single letter to prices to indicate tax category (e.g. "8.99A", "11.99N", "26.09E"). Strip the trailing letter — `price` must be the numeric value plus currency only: "8.99USD".
 - CA Redemption Value / REDEMP VA / CRV lines are deposit fees — skip them entirely, do not include as items. Critically: the dollar amount on a CA REDEMP VA line (e.g. "0.60A", "1.75A") belongs to the fee, NOT to the product printed above it. Never assign a CA REDEMP VA price to a product.
 - Abbreviated product names: Costco uses abbreviated names on the receipt (e.g. "KSORGWHLEMLK", "ORG FR EGGS", "HONYCRSP"). Expand these to their full human-readable form using context clues: "KS Organic Whole Milk", "Organic Free Range Eggs", "Honeycrisp Apples", etc.
-- Each product appears only once on the receipt. If you see the same item at different points in the text (e.g. once with an item code and once without), output it exactly once.
+- Each product appears only once on the receipt. If you see the same item at different points in the text (e.g. once with an item code and once without), output it exactly once.\
+"""
 
-## Handling ambiguity
 
-- If multiple candidate values exist for the same field (e.g. two dates, two totals), choose the most recent or most prominent one.
-- If confidence in a field value is low — the text is unclear, partially obscured, or contradictory — return null rather than guessing.
-- Do not fabricate or infer values that are not explicitly present in the OCR text. If a field is not visible, output null.
+def _build_system_prompt(ocr_text: str, use_direct: bool = False) -> str:
+    """Return the system prompt, appending Costco rules only when the OCR mentions Costco."""
+    base = _SYSTEM_PROMPT_DIRECT if use_direct else _SYSTEM_PROMPT
+    if "COSTCO" in ocr_text.upper()[:500]:
+        return base + _COSTCO_PROMPT_ADDENDUM
+    return base
 
-Also include every other field readable from the OCR text as extra top-level fields — \
-cashier, member/rewards number, savings, transaction ID, store phone, operator number, etc. \
-Preserve all receipt detail."""
 
 # ---------------------------------------------------------------------------
 # Step 1 — Azure Document Intelligence OCR
@@ -339,24 +349,22 @@ def _reconstruct_spatial_rows(result) -> str:
     """
     Build a column-labeled spatial layout from ADI bounding-box data.
 
-    Each line from ADI carries a polygon ([x1,y1,...,x4,y4]) that tells us
-    exactly where on the page it sits.  We bucket every line into one of three
-    logical columns based on its left-edge X position relative to page width:
+    Hybrid approach: page.lines for row structure, page.words for intra-line
+    column assignment.
+
+    ADI's page.lines correctly groups words into visual rows (row structure),
+    but treats each line as one token — so "REYNOLDS WRAP FOIL 0.60" becomes
+    a single left-column blob even though "0.60" is in the center column.
+
+    page.words gives each word its own X polygon, so we decompose each ADI
+    line into its component words, assign each word to L/C/R by its individual
+    X position, then concatenate same-column words within the line into one
+    token.  Row grouping still uses page.lines Y positions, so adjacent lines
+    ("Your cashier was Jamie" / "REYNOLDS WRAP FOIL") stay separate.
 
         [L] < 40%  — item description / product name
         [C] 40-70% — quantity / unit
         [R] > 70%  — price
-
-    Column-aware row building (two-pass):
-      Pass 1 — group [L] tokens by Y proximity into item rows (same as before).
-      Pass 2 — assign each [R] token to the nearest [L] row whose Y is AT OR
-               BELOW the price token's Y (handles receipts like Costco where the
-               price bounding-box sits slightly above the item-name bounding-box
-               on the page).  Falls back to the nearest row above when nothing
-               is found below.
-
-    This is passed to the LLM as a supplementary section alongside the
-    markdown text so it can anchor column assignments without guessing.
     """
     if not result.pages:
         return ""
@@ -366,26 +374,140 @@ def _reconstruct_spatial_rows(result) -> str:
     page_height = max(getattr(page, "height", 0) or 0, 1.0)
     tolerance   = page_height * 0.015   # lines within 1.5% of page height → same row
 
-    line_data: list[tuple[float, float, str]] = []   # (y_center, x_left, text)
+    # ── Build word position maps ─────────────────────────────────────────────
+    word_xs:    dict[str, float] = {}   # token → x_left  (for L/C/R column assignment)
+    word_ys:    dict[str, float] = {}   # token → y_center (last occurrence; for tilt)
+    word_count: dict[str, int]   = {}   # token → total occurrences on this page
+
+    for word in (page.words or []):
+        wpoly = getattr(word, "polygon", None)
+        wtext = getattr(word, "content", None)
+        if not wpoly or not wtext or not wtext.strip():
+            continue
+        if hasattr(wpoly[0], "x"):
+            wxs = [p.x for p in wpoly]
+            wys = [p.y for p in wpoly]
+        else:
+            wxs = list(wpoly[0::2])
+            wys = list(wpoly[1::2])
+        tok = wtext.strip()
+        word_xs[tok]    = min(wxs)
+        word_ys[tok]    = sum(wys) / len(wys)
+        word_count[tok] = word_count.get(tok, 0) + 1
+
+    # ── Tilt detection ──────────────────────────────────────────────────────
+    # ADI often returns axis-aligned word bounding boxes even for tilted
+    # receipts, so polygon top-edge slopes are unreliable.  Instead we measure
+    # tilt from the Y variation of word centers WITHIN multi-word ADI lines.
+    #
+    # Pitfall: word_ys stores the LAST occurrence of each token; for repeated
+    # tokens (e.g. "F" appears on every food-taxable line, "SC" on every Kroger
+    # savings row) the stored Y is wrong for earlier occurrences, which
+    # corrupts the slope calculation.  To avoid this, we only include slope
+    # samples from lines where ALL tokens are unique across the page.
+    #
+    # For the Kroger test receipt the estimated tilt is ≈ −0.07 to −0.09
+    # (right side ~15 px higher per 200 px horizontal span).
+    # If the receipt is straight, all slopes ≈ 0 → tilt = 0 → y_corr = y.
+    slope_samples: list[float] = []
+    for line in (page.lines or []):
+        ltext = getattr(line, "content", None)
+        lpoly = getattr(line, "polygon", None)
+        if not ltext or not lpoly:
+            continue
+        tokens = ltext.strip().split()
+        if len(tokens) < 2:
+            continue
+        # Skip noise lines (totals, loyalty text, transaction codes) — they
+        # often have different perspective distortion than the item section.
+        if _SPATIAL_NOISE_LINE.match(ltext.strip()):
+            continue
+        # Skip lines containing any token that appears more than once on the
+        # page — word_ys for such tokens reflects their last position, not this
+        # line's position, which would give a wrong slope.
+        if any(word_count.get(t, 0) > 1 for t in tokens):
+            continue
+        # Only sample from the upper 60% of the receipt — the item section.
+        # Footer/ad text at the bottom of receipts often has reduced or reversed
+        # perspective tilt, which would drag the median toward zero.
+        if hasattr(lpoly[0], "x"):
+            line_y_center = sum(p.y for p in lpoly) / len(lpoly)
+        else:
+            line_y_center = sum(lpoly[1::2]) / (len(lpoly) // 2)
+        if line_y_center > page_height * 0.60:
+            continue
+        xy = [(word_xs[t], word_ys[t]) for t in tokens
+              if t in word_xs and t in word_ys]
+        if len(xy) < 2:
+            continue
+        xy.sort(key=lambda p: p[0])                     # sort left → right by X
+        x_span = xy[-1][0] - xy[0][0]
+        if x_span < page_width * 0.05:                  # need meaningful span (≥5%)
+            continue
+        slope_samples.append((xy[-1][1] - xy[0][1]) / x_span)
+
+    tilt: float = statistics.median(slope_samples) if slope_samples else 0.0
+
+    def _cy(x: float, y: float) -> float:
+        """Return shear-corrected Y: removes the linear tilt across the page."""
+        return y - tilt * x
+
+    # ── Build line_data ──────────────────────────────────────────────────────
+    # Row structure: page.lines — each ADI line is one visual row.
+    # Column assignment: page.words X (word_xs).
+    # Y stored in line_data: raw line_y for ALL tokens (not corrected).
+    #   • Left tokens  → raw line_y preserves ADI's row separation for grouping
+    #   • Center/right → raw line_y; tilt correction is applied ONLY during
+    #     assignment to groups (see _best_group below), not in line_data itself.
+    #     Applying correction in line_data would shrink the gap between adjacent
+    #     rows (e.g. REYNOLDS row ↔ SC KROGER SAVINGS row from 16 px to 8 px),
+    #     dropping it below the grouping tolerance and merging them.
+    #
+    # Column thresholds (fraction of page width):
+    #   [L] < 52%  — item description / product name.  52% rather than 40% so
+    #                 that long product names whose words spill into the 40–52%
+    #                 zone stay in the left column.
+    #   [C] 52–70% — quantity / unit price / discount amount
+    #   [R] > 70%  — right-column total price
+    line_data: list[tuple[float, float, str]] = []   # (raw_line_y, x_left, text)
+
     for line in (page.lines or []):
         poly = getattr(line, "polygon", None)
         text = getattr(line, "content", None)
-        if not poly or not text:
+        if not poly or not text or not text.strip():
             continue
-        # Strip structural noise (totals, tax, CRV, payment lines) before
-        # spatial assignment so their prices can't be misassigned to a product
-        # row. Savings/discount lines are intentionally kept — they are labeled
-        # [S] in the render so the LLM can subtract them from the item price.
         if _SPATIAL_NOISE_LINE.match(text.strip()):
             continue
-        # polygon: flat list [x1,y1,x2,y2,x3,y3,x4,y4] or list of Point objects
         if hasattr(poly[0], "x"):
-            xs = [p.x for p in poly]
-            ys = [p.y for p in poly]
+            ys        = [p.y for p in poly]
+            line_min_x = min(p.x for p in poly)
         else:
-            xs = list(poly[0::2])
-            ys = list(poly[1::2])
-        line_data.append((sum(ys) / len(ys), min(xs), text.strip()))
+            ys        = list(poly[1::2])
+            line_min_x = min(poly[0::2])
+        line_y = sum(ys) / len(ys)
+
+        left_words:   list[tuple[str, float]] = []
+        center_words: list[tuple[str, float]] = []
+        right_words:  list[tuple[str, float]] = []
+
+        for token in text.strip().split():
+            x   = word_xs.get(token, line_min_x)
+            pct = x / page_width
+            if pct < 0.52:
+                left_words.append((token, x))
+            elif pct < 0.70:
+                center_words.append((token, x))
+            else:
+                right_words.append((token, x))
+
+        if left_words:
+            line_data.append((line_y, left_words[0][1],
+                              " ".join(t[0] for t in left_words)))
+        for tok, x in center_words:
+            line_data.append((line_y, x, tok))
+        if right_words:
+            line_data.append((line_y, right_words[0][1],
+                              " ".join(t[0] for t in right_words)))
 
     line_data.sort(key=lambda t: t[0])
 
@@ -395,7 +517,7 @@ def _reconstruct_spatial_rows(result) -> str:
     right_tokens:  list[tuple[float, float, str]] = []
     for y, x, text in line_data:
         pct = x / page_width
-        if pct < 0.40:
+        if pct < 0.52:
             left_tokens.append((y, x, text))
         elif pct < 0.70:
             center_tokens.append((y, x, text))
@@ -416,100 +538,185 @@ def _reconstruct_spatial_rows(result) -> str:
     # Representative Y for each [L] group (first token's Y, groups are sorted)
     group_ys = [g[0][0] for g in left_groups]
 
+    # ── Tilt-corrected group assignment ─────────────────────────────────────
+    # Assign center and right tokens to [L] groups by comparing tilt-corrected
+    # Y values (simple nearest).
+    #
+    # Why tilt correction here and not in line_data?
+    #   Receipt tilt shifts the price column up relative to the item-name column
+    #   on the same visual row.  Left groups are built from raw line_y (which
+    #   preserves ADI's original row separation), but center/right tokens need
+    #   their Y adjusted before comparison so that a price at corrected Y=306
+    #   lands on the item at corrected Y=309, not on the cashier header at
+    #   corrected Y=267.
+    #
+    # Corrected Y for a token:    _cy(token_x, raw_line_y)
+    # Corrected Y for a group:    _cy(avg_x_of_group, raw_y_of_first_token)
+    #   where avg_x = average of stored X values across all entries in the group.
+    #   This uses the group's leftmost-word X as a proxy for its horizontal
+    #   center, correcting the group Y by approximately the same amount as the
+    #   same-row price column.
+
+    def _group_cy(group: list) -> float:
+        """Tilt-corrected representative Y for a [L] group.
+
+        Uses the LAST element's (x, y) so that multi-item groups (e.g.
+        {KRO CREAMER, IMPR MARGRNE}) expose the bottom item's corrected Y.
+        This ensures the group's corrected-Y boundary is >= all prices that
+        belong to items inside the group.
+        """
+        last = group[-1]
+        return _cy(last[1], last[0])        # _cy(x, raw_y) of the last element
+
+    def _best_group(raw_y: float, x: float) -> int:
+        """Return the index of the best [L] group for a center/right token.
+
+        Strategy: "at or below with margin"
+        - A group is a *valid candidate* if its corrected Y is not more than
+          `margin` pixels *above* the token's corrected Y
+          (i.e. _group_cy(group) >= token_cy - margin).
+        - Among valid candidates, prefer the one with the smallest corrected Y
+          (the item closest to, but at or below, the price).
+
+        Why margin?  Tilt estimation is imperfect (±5–10 px residual error),
+        so the "at or below" boundary is fuzzy.  A small margin prevents
+        near-correct assignments from flipping to the wrong row.
+
+        Fallback: if no group qualifies (e.g. token above all items), use the
+        topmost group (smallest corrected Y).
+        """
+        corr_y = _cy(x, raw_y)
+        margin = tolerance * 0.5            # ~ half an inter-row spacing
+        ranked = sorted(range(len(left_groups)),
+                        key=lambda i: _group_cy(left_groups[i]))
+        # Filter to valid candidates
+        valid = [(i, _group_cy(left_groups[i])) for i in ranked
+                 if _group_cy(left_groups[i]) >= corr_y - margin]
+        if valid:
+            # Among valid candidates, pick the one with smallest corrected Y
+            # (the item closest to and just at-or-below the price)
+            return min(valid, key=lambda ic: ic[1])[0]
+        # Fallback — token above all groups; assign to the topmost group
+        return ranked[0]
+
     # --- Pass 2: assign [R] tokens to [L] groups ---
-    # For each price, prefer the nearest [L] group whose Y >= price_Y
-    # (the item is at or below the price on the page — handles Costco format).
-    # Fall back to the nearest group above when nothing is found below.
     group_rights: list[list[tuple[float, float, str]]] = [[] for _ in left_groups]
-
     for r_y, r_x, r_text in right_tokens:
-        best_idx, best_dist = 0, float("inf")
+        group_rights[_best_group(r_y, r_x)].append((r_y, r_x, r_text))
 
-        # Forward scan: find nearest group at or below the price
-        for i, g_y in enumerate(group_ys):
-            if g_y >= r_y:           # group is at or below the price
-                dist = g_y - r_y
-                if dist < best_dist:
-                    best_dist, best_idx = dist, i
-                break                # groups sorted ascending; first match is nearest
-
-        # If best_dist is still large, also check nearest group above as fallback
-        for i, g_y in enumerate(group_ys):
-            dist = abs(g_y - r_y)
-            if dist < best_dist:
-                best_dist, best_idx = dist, i
-
-        group_rights[best_idx].append((r_y, r_x, r_text))
+    # Preliminary center assignment — needed before the continuation merge so we
+    # can detect groups with a center-column price.  On Kroger-style receipts
+    # item prices land in [C] (52-70% X) with F/T suffixes, not [R] (>70% X).
+    # Without this, the continuation merge sees r_tokens=[] for every item and
+    # collapses the entire item section into one cascade row.
+    prelim_centers: list[list[tuple[float, float, str]]] = [[] for _ in left_groups]
+    for c_y, c_x, c_text in center_tokens:
+        prelim_centers[_best_group(c_y, c_x)].append((c_y, c_x, c_text))
 
     # --- Pass 3: merge continuation lines into their parent row ---
     # When a product name wraps across two OCR lines they land in separate [L]
-    # groups (Y gap > tolerance).  If the second group has no [R] token assigned
-    # it is almost certainly a continuation of the line above, not a new item.
-    # Merge it upward so the LLM sees one complete name on one row.
+    # groups (Y gap > tolerance).  If the second group has no price in ANY column
+    # (R or C) it is almost certainly a continuation of the line above.
     continuation_threshold = tolerance * 3   # ~4.5% of page height ≈ 2-3 line heights
     merged_groups:  list[list[tuple[float, float, str]]] = []
     merged_rights:  list[list[tuple[float, float, str]]] = []
+    merged_prelim:  list[list[tuple[float, float, str]]] = []
 
     for i, group in enumerate(left_groups):
         r_tokens = group_rights[i]
+        c_tokens = prelim_centers[i]
+        has_price = bool(r_tokens or c_tokens)           # price in R or C column
+        parent_has_price = bool(
+            merged_rights and (merged_rights[-1] or merged_prelim[-1])
+        )
         if (merged_groups
-                and not r_tokens                                    # no price on this line
-                and not merged_rights[-1]                           # parent also has no price yet
-                and (group[0][0] - merged_groups[-1][0][0])        # Y gap from parent
+                and not has_price                               # no price on this line
+                and not parent_has_price                        # parent also has no price yet
+                and (group[0][0] - merged_groups[-1][0][0])    # Y gap from parent
                     <= continuation_threshold):
             # Continuation line — absorb into the previous group
             merged_groups[-1].extend(group)
         else:
             merged_groups.append(group)
             merged_rights.append(r_tokens)
+            merged_prelim.append(c_tokens)
 
     # Re-derive group_ys from merged groups for [C] assignment below
     group_ys     = [g[0][0] for g in merged_groups]
     left_groups  = merged_groups
     group_rights = merged_rights
+    # (merged_prelim is discarded — final center assignment below uses updated group_ys)
 
-    # Assign [C] tokens to nearest [L] group by Y
+    # Assign [C] tokens to [L] groups — tilt-corrected nearest, same as Pass 2.
     group_centers: list[list[tuple[float, float, str]]] = [[] for _ in left_groups]
     for c_y, c_x, c_text in center_tokens:
-        best_idx = min(range(len(group_ys)), key=lambda i: abs(group_ys[i] - c_y))
-        group_centers[best_idx].append((c_y, c_x, c_text))
+        group_centers[_best_group(c_y, c_x)].append((c_y, c_x, c_text))
 
     # --- Render rows ---
-    # Each token is labeled with its column AND its normalised Y coordinate
-    # (0.00 = top of page, 1.00 = bottom) so the LLM can see which tokens
-    # share a row and detect small vertical offsets that pure column labels
-    # cannot express (e.g. Costco prices sitting 1-2 px above their item name).
+    # Each token is labeled with its column (L/C/R/S).
     output_lines: list[str] = []
     for i, group in enumerate(left_groups):
-        parts: list[str] = []
-        # Determine if this group is a savings/discount line — label it [S]
-        # so the LLM knows to subtract its [R] value from the item above.
         group_text = " ".join(t[2] for t in group)
         col_label  = "S" if _SAVINGS_LINE.search(group_text) else "L"
-        # Left + center tokens sorted left-to-right
-        lc = [(t, col_label) for t in group] + [(t, "C") for t in group_centers[i]]
-        lc.sort(key=lambda tc: tc[0][1])
-        for t, col in lc:
-            y_norm = t[0] / page_height
-            parts.append(f"[{col}:{y_norm:.2f}] {t[2]}")
-        # Right tokens sorted left-to-right
-        for r_y, _, text in sorted(group_rights[i], key=lambda t: t[1]):
-            y_norm = r_y / page_height
-            parts.append(f"[R:{y_norm:.2f}] {text}")
-        if parts:
-            output_lines.append("  |  ".join(parts))
+
+        if len(group) > 1 and col_label == "L":
+            # Multiple [L] items landed in the same Y-band (adjacent lines printed
+            # very close together).  Render each on its own row so the LLM sees
+            # them as separate products, not a name + item-code pair.
+            # [C] tokens are distributed to whichever [L] is nearest by Y.
+            # [R] tokens (price column) go to the last [L] item in the group.
+            sorted_left = sorted(group, key=lambda t: t[0])
+            c_tokens    = sorted(group_centers[i], key=lambda t: t[0])
+            r_tokens    = sorted(group_rights[i],  key=lambda t: t[1])
+            for j, (l_y, l_x, l_text) in enumerate(sorted_left):
+                parts: list[str] = [f"[L] {l_text}"]
+                for c_y, c_x, c_text in c_tokens:
+                    # Use tilt-corrected Y for within-group assignment so that
+                    # prices that appear above their item in raw Y (due to tilt)
+                    # land on the correct item rather than the one above it.
+                    c_corr = _cy(c_x, c_y)
+                    nearest = min(range(len(sorted_left)),
+                                  key=lambda k: abs(_cy(sorted_left[k][1],
+                                                        sorted_left[k][0]) - c_corr))
+                    if nearest == j:
+                        parts.append(f"[C] {c_text}")
+                if j == len(sorted_left) - 1:
+                    for _, _, r_text in r_tokens:
+                        parts.append(f"[R] {r_text}")
+                output_lines.append("  |  ".join(parts))
+        else:
+            parts = []
+            lc = [(t, col_label) for t in group] + [(t, "C") for t in group_centers[i]]
+            lc.sort(key=lambda tc: tc[0][1])
+            for t, col in lc:
+                parts.append(f"[{col}] {t[2]}")
+            for r_y, _, text in sorted(group_rights[i], key=lambda t: t[1]):
+                parts.append(f"[R] {text}")
+            if parts:
+                output_lines.append("  |  ".join(parts))
 
     return "\n".join(output_lines)
 
 
-def ocr(image_path: Path, run_id: str, user_id: str = "") -> str:
+def ocr(image_path: Path, run_id: str, user_id: str = "", use_cache: bool = True) -> str:
     """
     Send image to Azure Document Intelligence (prebuilt-read).
     Returns markdown OCR text with a spatial layout section appended.
 
     The spatial section labels each line [L]eft / [C]enter / [R]ight based on
     its bounding-box X position, preserving column structure for the LLM.
+
+    When use_cache=True (default), the OCR result is written to
+    ocr_cache/<stem>.txt after the first successful call and loaded from there
+    on all subsequent calls — skipping the ADI network call entirely.  Use
+    --no-ocr-cache to force a fresh ADI call (e.g. after changing the spatial
+    reconstruction logic).
     """
+    if use_cache:
+        cache_file = OCR_CACHE_DIR / (image_path.stem + ".txt")
+        if cache_file.exists():
+            return cache_file.read_text(encoding="utf-8")
+
     if not AZURE_DI_ENDPOINT or not AZURE_DI_KEY:
         raise EnvironmentError(
             "AZURE_DI_ENDPOINT and AZURE_DI_KEY must be set in .env\n"
@@ -543,14 +750,23 @@ def ocr(image_path: Path, run_id: str, user_id: str = "") -> str:
         latency_ms = (time.monotonic() - start) * 1000
 
         pages    = len(result.pages) if result.pages else 1
-        markdown = result.content or ""
+        # Reconstruct text from page.lines instead of result.content.
+        # result.content applies ADI's own merge heuristic, which can concatenate
+        # two visually separate receipt rows (e.g. "Your cashier was Jamie
+        # REYNOLDS WRAP FOIL 0.60") into one line.  page.lines preserves the
+        # per-line bounding boxes ADI detected, giving correct line breaks.
+        line_texts: list[str] = []
+        for _page in (result.pages or []):
+            for _line in (_page.lines or []):
+                if getattr(_line, "content", None):
+                    line_texts.append(_line.content)
+        markdown = "\n".join(line_texts) if line_texts else (result.content or "")
 
         spatial  = _reconstruct_spatial_rows(result)
         ocr_text = (
             markdown
             + "\n\n---\n## SPATIAL LAYOUT\n"
-            + "Each token labeled [COL:Y] where COL=L/C/R (column) and Y=normalised page position (0.00=top, 1.00=bottom).\n"
-            + "Tokens with the same or very close Y values are on the same physical row.\n"
+            + "Each token labeled [COL] where COL=L/C/R/S (L=item name, C=center/price, R=right-col price, S=savings/discount row).\n"
             + "Use this section to extract items — preserves column alignment.\n\n"
             + spatial
         ) if spatial else markdown
@@ -558,6 +774,13 @@ def ocr(image_path: Path, run_id: str, user_id: str = "") -> str:
         log_adi(run_id, image_path.name, user_id, image_size_bytes,
                 pages, pages * ADI_COST_PER_PAGE, latency_ms, True,
                 chars_extracted=len(markdown))
+
+        if use_cache:
+            OCR_CACHE_DIR.mkdir(exist_ok=True)
+            (OCR_CACHE_DIR / (image_path.stem + ".txt")).write_text(
+                ocr_text, encoding="utf-8"
+            )
+
         return ocr_text
 
     except Exception as e:
@@ -598,7 +821,7 @@ def _parse_llm_json(raw: str) -> dict:
     return json.loads(raw)
 
 
-def _structure_openrouter(ocr_text: str, model: str) -> tuple[dict, int, int, str]:
+def _structure_openrouter(ocr_text: str, model: str, system_prompt: str = _SYSTEM_PROMPT) -> tuple[dict, int, int, str]:
     """Call OpenRouter and return (parsed_dict, prompt_tokens, completion_tokens, generation_id)."""
     if not OPENROUTER_API_KEY:
         raise EnvironmentError("OPENROUTER_API_KEY not set — add it to .env")
@@ -609,7 +832,7 @@ def _structure_openrouter(ocr_text: str, model: str) -> tuple[dict, int, int, st
     resp = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user",   "content": f"Receipt OCR text:\n\n{ocr_text}"},
         ],
         temperature=0,
@@ -618,7 +841,8 @@ def _structure_openrouter(ocr_text: str, model: str) -> tuple[dict, int, int, st
     usage = resp.usage
     pt = usage.prompt_tokens     if usage else 0
     ct = usage.completion_tokens if usage else 0
-    return _parse_llm_json(resp.choices[0].message.content), pt, ct, resp.id or ""
+    raw = resp.choices[0].message.content
+    return _parse_llm_json(raw), pt, ct, resp.id or "", raw
 
 
 def _fetch_openrouter_generation(generation_id: str) -> dict:
@@ -690,7 +914,7 @@ def _estimate_clod_cost(model: str, input_tokens: int, output_tokens: int) -> fl
     return (input_tokens * price_in + output_tokens * price_out) / 1_000_000
 
 
-def _structure_clod(ocr_text: str, model: str) -> tuple[dict, int, int, float | None]:
+def _structure_clod(ocr_text: str, model: str, system_prompt: str = _SYSTEM_PROMPT) -> tuple[dict, int, int, float | None]:
     """Call the CLOD API via httpx and return (parsed_dict, input_tokens, output_tokens, cost_usd_or_None)."""
     if not CLOD_API_KEY:
         raise EnvironmentError("CLOD_API_KEY not set — add it to .env")
@@ -702,7 +926,7 @@ def _structure_clod(ocr_text: str, model: str) -> tuple[dict, int, int, float | 
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user",   "content": f"Receipt OCR text:\n\n{ocr_text}"},
         ],
     }
@@ -768,6 +992,7 @@ def _structure_clod(ocr_text: str, model: str) -> tuple[dict, int, int, float | 
         pt, ct,
         float(api_cost)    if api_cost    is not None else None,
         float(api_latency) if api_latency is not None else None,
+        content,
     )
 
 
@@ -779,7 +1004,7 @@ def _structure_clod(ocr_text: str, model: str) -> tuple[dict, int, int, float | 
 # over _CHUNK_THRESHOLD_CHARS are split into overlapping vertical sections
 # before being sent to the LLM.  Results are merged after all chunks return.
 
-_CHUNK_THRESHOLD_CHARS = 1000   # ~1191 chars for a 14-item Costco receipt
+_CHUNK_THRESHOLD_CHARS = 2000   # raised from 1000 — most receipts fit in one chunk
 _CHUNK_HEADER_LINES    = 6      # lines to prepend to every chunk (store/date context)
 _CHUNK_MAX_CHARS       = 700    # max body chars per chunk (excluding prepended header)
 _CHUNK_OVERLAP_LINES   = 6      # overlap between chunks — 6 lines keeps item+price+CA REDEMP VA together
@@ -1020,14 +1245,23 @@ _SPATIAL_NOISE_LINE = re.compile(
     r"sub\s*total|subtotal|total|net\s*total|grand\s*total|"
     r"hst|gst|pst|qst|vat|tax|surcharge|"
     r"payment|cash|credit|debit|visa|mastercard|interac|amex|"
-    r"change\s*due|balance\s*due|amount\s*due|amount\s*tendered|"
+    r"us\s+debit|us\s+credit|"                          # "US DEBIT Purchase" etc.
+    r"change\s*due|change\b|balance\s*due|balance\b|"   # bare CHANGE / BALANCE lines
+    r"amount\s*due|amount\s*tendered|"
+    r"purchase\s*:|purchase\b|"                         # "PURCHASE: 9.06"
+    r"verified|pin\s*verified|"                         # "VERIFIED BY PIN"
+    r"aid\s*:|tc\s*:|ref\s*#|trans\s*#|auth\s*#|approval|"  # transaction codes
     r"thank\s*you|please\s*come|visit\s*us|survey|"
-    r"receipt\s*#|store\s*#|ref\s*#|trans\s*#|auth\s*#|approval|"
-    r"approved|declined|pin\s*verified|customer\s*copy|merchant\s*copy|"
+    r"tell\s*us|earn\b|fuel\s*point|fuel\b|"            # loyalty program footer
+    r"remaining\b.*point|total\b.*point|"               # "Remaining May Fuel Points"
+    r"annual\s*card|you\s*saved|with\s*our|"            # savings summary footer
+    r"go\s*to\s*www|www\.|feedback|hiring|"             # URLs / HR footer
+    r"receipt\s*#|store\s*#|"
+    r"approved|declined|customer\s*copy|merchant\s*copy|"
     r"crv|ca\s*redemp|deposit|bottle\s*dep|bag\s*fee|"
-    r"cashier|operator|terminal|"
-    r"\*{2,}|={3,}|-{3,}|#{3,}"
-    r")\b",
+    r"your\s+cashier|cashier|operator|terminal|"        # "Your cashier was Jamie" etc.
+    r"\*{4,}|={3,}|-{3,}|#{3,}"                        # symbol-only lines (\b removed — \W next to \W has no boundary)
+    r")(?:\b|$|\s)",                                    # word boundary OR end OR whitespace
     re.IGNORECASE,
 )
 
@@ -1374,14 +1608,30 @@ _CURRENCY_MARKERS = [
 ]
 
 
+_US_STORE_OCR_RE = re.compile(
+    r'\b(KROGER|INGLES|INGLE\'?S|WALMART|WAL-MART|TARGET|VONS|RALPHS|SAFEWAY'
+    r'|ALBERTSONS|PUBLIX|H-?E-?B|WHOLE\s+FOODS|TRADER\s+JOE\'?S'
+    r'|FARM\s*&\s*TABLE|CVS|WALGREENS|RITE\s+AID)\b',
+    re.IGNORECASE,
+)
+
+
 def _detect_currency_from_ocr(ocr_text: str) -> str | None:
     """
-    Scan OCR text for explicit currency markers and return the currency code.
-    Returns None when no non-USD marker is found (caller should default to USD).
+    Scan OCR text for currency signals and return the currency code.
+
+    Non-USD markers (CAD/GBP/EUR) take priority — if found, return immediately.
+    Then check for known US store names in the OCR; if found, return 'USD' to
+    override an LLM-hallucinated non-USD currency when the model misread the
+    store name (e.g. Qwen returning 'Grocery' for Ingles).
+    Returns None when no signal is found (caller falls back to store-name
+    inference, then the LLM's own currency guess, then 'USD').
     """
     for pattern, code in _CURRENCY_MARKERS:
         if pattern.search(ocr_text):
             return code
+    if _US_STORE_OCR_RE.search(ocr_text):
+        return "USD"
     return None
 
 
@@ -1430,20 +1680,41 @@ _CANADIAN_STORE_NAMES: frozenset[str] = frozenset({
     "Independent",
 })
 
+# Known US stores — used to override an LLM-hallucinated non-USD currency code.
+_US_STORE_KEYWORDS: tuple[str, ...] = (
+    "KROGER", "INGLES", "WALMART", "WAL-MART", "TARGET", "VONS",
+    "RALPHS", "SAFEWAY", "ALBERTSONS", "PUBLIX", "HEB", "WHOLE FOODS",
+    "TRADER JOE", "COSTCO",  # Costco has US and CA locations; OCR marker takes precedence
+    "FARM & TABLE", "FARM AND TABLE",
+    "CVS", "WALGREENS", "RITE AID",
+)
+
 
 def _infer_currency_from_store(store_name: str) -> str | None:
-    """Return 'CAD' if store_name is a known Canadian chain, else None."""
+    """Return 'CAD' or 'USD' if store_name is a known chain, else None.
+
+    Canadian chains → CAD.  US chains → USD (overrides LLM hallucinations in
+    either direction).  Returns None when the store is unknown so the LLM's
+    own currency guess is used as the fallback.
+    """
     name = (store_name or "").strip()
+    name_upper = name.upper()
+
+    # Canadian check — exact then partial
     if name in _CANADIAN_STORE_NAMES:
         return "CAD"
-    # Partial-match for stores that may have branch suffixes (e.g. "Real Canadian® Superstore")
-    name_upper = name.upper()
     canadian_keywords = ("NO FRILLS", "REAL CANADIAN", "T&T SUPERMARKET",
                          "HOUSE OF DOSA", "LOBLAWS", "SOBEYS", "FRESHCO",
                          "FOOD BASICS")
     for kw in canadian_keywords:
         if kw in name_upper:
             return "CAD"
+
+    # US check — keyword partial match
+    for kw in _US_STORE_KEYWORDS:
+        if kw in name_upper:
+            return "USD"
+
     return None
 
 
@@ -1694,12 +1965,31 @@ def structure(ocr_text: str, image_path: Path, user_name: str,
     # from being misidentified as product items.
     ocr_text = _filter_noise_lines(ocr_text)
 
-    chunks = (
-        _split_ocr_into_chunks(ocr_text)
-        if len(ocr_text) > _CHUNK_THRESHOLD_CHARS
-        else [ocr_text]
-    )
+    # Always run the chunker so it strips the raw OCR body when a SPATIAL
+    # LAYOUT section is present (saves ~40% tokens on short receipts too).
+    # For long receipts it also splits into overlapping sections as before.
+    _SPATIAL_MARKER = "\n---\n## SPATIAL LAYOUT\n"
+    if _SPATIAL_MARKER in ocr_text or len(ocr_text) > _CHUNK_THRESHOLD_CHARS:
+        chunks = _split_ocr_into_chunks(ocr_text)
+    else:
+        chunks = [ocr_text]
     is_chunked = len(chunks) > 1
+
+    # Use the leaner direct-output prompt for simple receipts (no CoT scaffolding).
+    # Simple = single chunk with spatial layout (column-aligned, unambiguous).
+    # Complex = chunked or no spatial layout → keep full CoT prompt for accuracy.
+    _SPATIAL_MARKER = "\n---\n## SPATIAL LAYOUT\n"
+    _use_direct = not is_chunked and _SPATIAL_MARKER in ocr_text
+    _is_costco  = "COSTCO" in ocr_text.upper()[:500]
+    _prompt = _build_system_prompt(ocr_text, _use_direct)
+
+    # Prompt-path label recorded in the log so per-receipt token counts can be
+    # interpreted alongside system-prompt size differences.
+    _prompt_path = ("direct" if _use_direct else "cot") + ("+costco" if _is_costco else "")
+
+    # Total OCR content chars sent to the LLM (sum across all chunks, system
+    # prompt excluded).  This is the metric we track for token reduction work.
+    _input_chars = sum(len(c) for c in chunks)
 
     start = time.monotonic()
     total_pt, total_ct, total_cost = 0, 0, 0.0
@@ -1711,7 +2001,7 @@ def structure(ocr_text: str, image_path: Path, user_name: str,
         for chunk_text in chunks:
             if resolved_provider == "clod":
                 try:
-                    c_result, pt, ct, api_cost, api_latency_ms = _structure_clod(chunk_text, model)
+                    c_result, pt, ct, api_cost, api_latency_ms, _ = _structure_clod(chunk_text, model, _prompt)
                 except json.JSONDecodeError:
                     # Chunk returned unparseable content — skip it, other chunks still contribute
                     continue
@@ -1721,7 +2011,7 @@ def structure(ocr_text: str, image_path: Path, user_name: str,
                 else:
                     total_cost += _estimate_clod_cost(model, pt, ct) or 0.0
             else:
-                c_result, pt, ct, gen_id = _structure_openrouter(chunk_text, model)
+                c_result, pt, ct, gen_id = _structure_openrouter(chunk_text, model, _prompt)
                 gen = _fetch_openrouter_generation(gen_id)
                 if gen["cost"] is not None:
                     total_cost += gen["cost"]
@@ -1783,29 +2073,34 @@ def structure(ocr_text: str, image_path: Path, user_name: str,
             address = _extract_address_from_ocr(ocr_text, result.get("storeName") or "")
             if address:
                 result["storeAddress"] = address
-        lat, lon = geocode(address)
+        lat, lon = geocode(address, store_name=result.get("storeName") or "")
         result["latitude"]  = lat
         result["longitude"] = lon
 
         log_llm(run_id, image_path.name, user_name, resolved_provider, model,
                 total_pt, total_ct, total_cost, latency_ms,
                 len(result.get("items", [])), True,
-                cost_source=cost_source, latency_source=latency_source)
+                cost_source=cost_source, latency_source=latency_source,
+                input_chars=_input_chars, prompt_path=_prompt_path)
         return result, total_pt, total_ct, total_cost
 
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
         log_llm(run_id, image_path.name, user_name, resolved_provider, model,
-                0, 0, 0.0, latency_ms, 0, False, str(e), latency_source="local")
+                0, 0, 0.0, latency_ms, 0, False, str(e), latency_source="local",
+                input_chars=_input_chars, prompt_path=_prompt_path)
         raise
 
 
 # ---------------------------------------------------------------------------
 # Geocoding — Azure Maps (optional, skipped if AZURE_MAPS_KEY is unset)
 # ---------------------------------------------------------------------------
-def geocode(address: str) -> tuple[float | None, float | None]:
+def geocode(address: str, store_name: str = "") -> tuple[float | None, float | None]:
     """
-    Look up lat/lon for a store address using Azure Maps Search API.
+    Look up lat/lon for a store address using Azure Maps Fuzzy Search API.
+    Prepends store_name to the query so Azure Maps can match the POI directly
+    rather than falling back to the nearest street address (which drifts in longitude).
+    Adds countrySet=CA,US to avoid cross-country mismatches.
     Returns (latitude, longitude) or (None, None) if unavailable.
     Requires AZURE_MAPS_KEY in .env.
     """
@@ -1814,10 +2109,11 @@ def geocode(address: str) -> tuple[float | None, float | None]:
     try:
         import urllib.request
         import urllib.parse
+        query = f"{store_name} {address}".strip() if store_name else address
         url = (
             AZURE_MAPS_URL
             + f"?api-version=1.0&subscription-key={AZURE_MAPS_KEY}"
-            f"&query={urllib.parse.quote(address)}&limit=1"
+            f"&query={urllib.parse.quote(query)}&limit=1&countrySet=CA,US"
         )
         with urllib.request.urlopen(url, timeout=5) as resp:
             data = json.loads(resp.read())
@@ -1826,7 +2122,7 @@ def geocode(address: str) -> tuple[float | None, float | None]:
             pos = results[0]["position"]
             return pos["lat"], pos["lon"]
     except Exception as e:
-        print(f"  [GEO]  geocode failed for '{address}': {e}")
+        print(f"  [GEO]  geocode failed for '{query}': {e}")
     return None, None
 
 
@@ -1929,7 +2225,7 @@ if _RT_AVAILABLE:
 # Extract — runs the pipeline (via Railtracks Flow if available)
 # ---------------------------------------------------------------------------
 def extract(image_path: Path, user_name: str, model: str, run_id: str,
-            provider: str | None = None) -> dict:
+            provider: str | None = None, use_cache: bool = True) -> dict:
     resolved_provider = (provider or LLM_PROVIDER).lower()
 
     if _RT_AVAILABLE:
@@ -1944,8 +2240,9 @@ def extract(image_path: Path, user_name: str, model: str, run_id: str,
         return json.loads(result.receipt_json)
     else:
         # Fallback if railtracks is not installed
-        print(f"  [ADI]  OCR …")
-        ocr_text = ocr(image_path, run_id, user_id=user_name)
+        _cache_hit = use_cache and (OCR_CACHE_DIR / (image_path.stem + ".txt")).exists()
+        print(f"  [ADI]  OCR {'(cached)' if _cache_hit else '…'}")
+        ocr_text = ocr(image_path, run_id, user_id=user_name, use_cache=use_cache)
         print(f"  [LLM]  Structuring via {resolved_provider} ({len(ocr_text)} chars) …")
         result, _, _, _ = structure(ocr_text, image_path, user_name, model, run_id, provider=resolved_provider)
         return result
@@ -2060,9 +2357,8 @@ def main():
     p.add_argument("--model",     default=None,
                    help="Model ID — defaults to OR_DEFAULT_MODEL or CLOD_DEFAULT_MODEL env var")
     p.add_argument("--no-upload",         action="store_true", help="Skip SDK upload")
-    p.add_argument("--report",            action="store_true", help="Generate usage report")
-    p.add_argument("--compare",           action="store_true",
-                   help="Generate per-model comparison table scoped to current Receipts/")
+    p.add_argument("--no-ocr-cache",      action="store_true",
+                   help="Force fresh ADI call even if ocr_cache/<stem>.txt exists")
     p.add_argument("--eval",              action="store_true",
                    help="Compare output/ against ground_truth/ and print scores")
     p.add_argument("--baseline-report",   action="store_true",
@@ -2074,12 +2370,6 @@ def main():
         resolved_model = args.model or CLOD_DEFAULT_MODEL
     else:
         resolved_model = args.model or OR_DEFAULT_MODEL
-
-    if args.report:
-        report(); return
-
-    if args.compare:
-        compare(); return
 
     if args.eval:
         eval_receipts(); return
@@ -2107,7 +2397,8 @@ def main():
         print(f"\n→ {img.name}")
         _start = time.monotonic()
         try:
-            data = extract(img, args.user, resolved_model, run_id, provider=args.provider)
+            data = extract(img, args.user, resolved_model, run_id, provider=args.provider,
+                           use_cache=not args.no_ocr_cache)
             total_ms = (time.monotonic() - _start) * 1000
             log_pipeline(run_id, img.name, args.user, args.provider, resolved_model, total_ms, True)
             rows = flatten_receipt(data)

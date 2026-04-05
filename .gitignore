@@ -15,6 +15,7 @@ output/
 logs/*.jsonl
 reports/Drafts/
 reports/provider-charts/
+ocr_cache/
 
 # Experiment temp files
 .baseline_start

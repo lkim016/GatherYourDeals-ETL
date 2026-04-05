@@ -40,6 +40,7 @@ Why stubs still produce meaningful results:
     flatten_receipt(), or logging shows up in the results.
 """
 
+import os
 import sys
 import threading
 import time
@@ -102,7 +103,7 @@ def _cpu_work(n: int = 50_000) -> None:
 # Enforced via a semaphore so callers beyond the cap see throttling latency.
 # ---------------------------------------------------------------------------
 
-_ADI_CAP = 15
+_ADI_CAP = int(os.environ.get("ADI_CAP", "15"))
 _adi_semaphore = threading.Semaphore(_ADI_CAP)
 _active_ocr_lock = threading.Lock()
 _active_ocr_calls = 0
@@ -172,7 +173,7 @@ etl.structure = _mock_structure
 etl.upload    = _mock_upload
 
 print("[integration] Patches applied:")
-print("  etl.ocr       → _mock_ocr       (CPU work + sleep ~5s, ADI cap=15)")
+print(f"  etl.ocr       → _mock_ocr       (CPU work + sleep ~5s, ADI cap={_ADI_CAP})")
 print("  etl.structure → _mock_structure  (CPU work + sleep ~3.7s)")
 print("  etl.upload    → _mock_upload     (no-op)")
 print()
@@ -199,10 +200,15 @@ if __name__ == "__main__":
                         help="Number of uvicorn workers (default: 1)")
     parser.add_argument("--port", type=int, default=8080,
                         help="Port to listen on (default: 8080)")
+    parser.add_argument("--adi-cap", type=int, default=15,
+                        help="ADI concurrency cap — semaphore limit (default: 15)")
     args = parser.parse_args()
 
+    # Set env var so workers pick up the cap when they import this module
+    os.environ["ADI_CAP"] = str(args.adi_cap)
+
     print(f"[integration] Starting ETL service on port {args.port} "
-          f"with {args.workers} worker(s)")
+          f"with {args.workers} worker(s), ADI cap={args.adi_cap}")
     print(f"[integration] Send requests to POST http://localhost:{args.port}/etl")
     print()
 
