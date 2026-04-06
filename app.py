@@ -36,7 +36,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -171,6 +171,7 @@ async def _run_mock_pipeline() -> None:
 )
 async def run_etl(
     body: EtlRequest,
+    request: Request,
     mock: bool = Query(False, description="If true, skip real pipeline and sleep through mock latencies (Experiment 1 Phase B)"),
 ):
     """
@@ -180,6 +181,12 @@ async def run_etl(
     Set `mock=true` to skip real API calls and simulate pipeline latency instead
     (zero cost — for Experiment 1 Phase B load testing).
     """
+    # Extract JWT from Authorization header — passed by Yimeng's frontend on
+    # behalf of the logged-in user.  Falls back to GYD_ACCESS_TOKEN env var
+    # (used for CLI runs and local testing).
+    auth_header = request.headers.get("Authorization", "")
+    jwt_token = auth_header.removeprefix("Bearer ").strip() or None
+
     source = (body.source or "").strip()
     if not source:
         return JSONResponse(
@@ -237,7 +244,7 @@ async def run_etl(
 
         # --- Upload to GYD service -----------------------------------------
         try:
-            _etl.upload(data, run_id)
+            _etl.upload(data, run_id, token=jwt_token)
         except Exception as exc:
             total_ms = (time.monotonic() - pipeline_start) * 1000
             log_pipeline(run_id, display_name, _DEFAULT_USER, provider, model,

@@ -216,17 +216,20 @@ Then list raw extracted values:
 ## Rules
 
 - Include only purchasable product line items. Skip ALL of the following:
-  - Deposits, recycling fees, donations, bag fees, CA Redemption Value / CRV lines.
+  - Deposits, recycling fees, donations, bag fees, CA Redemption Value / CRV lines. Note: recycling fees may appear as OCR variants like "RECYCLING FEL" — skip these regardless of OCR quality.
   - Tax, subtotal, total, payment method, change-due, and savings/discount summary lines.
   - Payment terminal / card slip data: card numbers, transaction IDs, reference numbers (Ref. #), auto numbers (Auto #), approval codes ("APPROVED", "DECLINED"), EMV application identifiers (strings starting with A000...), "CUSTOMER COPY", "RETAIN THIS COPY", "DateTime", "Visa Credit", "Debit Card".
   - Promotional and footer text: survey URLs (www., .com), loyalty point promotions ("EARN X FUEL POINTS", "FUEL POINTS"), thank-you messages, employee/manager contact lines (MGR:), job listings, store website addresses, feedback solicitations.
   - Sale/discount modifier lines: lines like "(SALE)", "MEMBER SAVINGS", "INSTANT SAVINGS", "DIGITAL COUPON", "PRICE REDUCTION" that appear below an item and modify its price — do not extract these as separate items.
-  - Never create placeholder items like "Item 1", "Item 2", "Item 3". If you cannot identify a clear product name from the spatial layout, skip that row entirely.
+  - Department/section header lines: lines that are purely a category label such as "GROCERY", "PRODUCE", "REFRIG/FROZEN", "MISCELLANEOUS", or numeric department codes like "22-DAIRY", "27-PRODUCE", "31-MEATS", "33-BAKERY INSTORE". These divide the receipt into sections — they are not products.
+  - OCR noise and unreadable text: garbled strings that are clearly not product names (e.g. "lonipito diiv", "ug lo zyob", "Imt 6", "SC 3547 A"). If a token does not resemble a real product name, skip it.
+  - Never create placeholder items with generic names like "Item", "Food", "Product", "Unknown", or numbered variants like "Item 1". If you cannot identify a clear product name from the spatial layout, skip that row entirely.
+- Duplicate purchases: if the same product appears on multiple separate line item rows (the customer bought it more than once), extract it once per row — do NOT deduplicate. Each line is a separate purchase transaction.
 - storeName must be the store's brand/chain name as printed on the receipt header (e.g. "Costco Wholesale", "Your Independent Grocer", "T&T Supermarket"). Do not append address, city, or branch details.
 - purchaseDate must be the transaction date, formatted YYYY.MM.DD. If the year looks implausible (before 2020) you are likely reading a receipt number, time, or barcode — re-examine the receipt for the correct date. When multiple dates appear (e.g. a transaction date and a promotion end date), prefer the date that is immediately paired with a transaction time (HH:MM or HH:MM:SS) — that pairing identifies the actual transaction timestamp.
 - price is the total amount charged for that line item as shown in the right-hand price column. Do not use per-unit rates, per-oz prices, or any divided amount. Always include the currency code: "4.79USD" not "4.79". When a receipt prints two price values per line (e.g. a regular "Price" column and a "You Pay" or "Sale" column), use the amount actually charged — the lower value or the one marked with S, "You Pay", or "Sale". Exception — [C] column prices: if an item has a value in [C] but no [R] value, and the receipt consistently shows no right-hand price column at all, treat the [C] value as the price.
 - amount is a count or weight only — never a price. Strip unrecognised unit codes down to the bare number.
-- Weight-priced items: some receipts print "1.160 kg @ $1.72/kg  2.00" — set amount to the weight ("1.160kg") and price to the total charged ("2.00CAD"), not the per-kg rate.
+- Weight-priced items: some receipts print "1.160 kg @ $1.72/kg  2.00" — set amount to the weight ("1.160kg") and price to the total charged ("2.00CAD"), not the per-kg rate. The weight string itself (e.g. "1.160 kg") is the `amount` field of the item above it — never extract it as a separate `productName`.
 - If a markdown table is present, each row is one line item — do not merge or split rows.
 - Column anchoring: each receipt row follows [ITEM NAME] [QTY optional] [PRICE]. Prices are typically right-aligned — do not assign a [L] value as a price, and do not assign a [R] value as a quantity. If no [R] price column exists for any row in the receipt, a [C] value may be the price (see price rule above).
 
@@ -2251,7 +2254,7 @@ def extract(image_path: Path, user_name: str, model: str, run_id: str,
 # ---------------------------------------------------------------------------
 # Upload via GYD SDK
 # ---------------------------------------------------------------------------
-def upload(receipt: dict, run_id: str):
+def upload(receipt: dict, run_id: str, token: str | None = None):
     try:
         from gather_your_deals import GYDClient
     except ImportError:
@@ -2260,12 +2263,12 @@ def upload(receipt: dict, run_id: str):
             "pip install git+https://github.com/yuewang199511/GatherYourDeals-SDK.git"
         )
 
-    # Initialize per request with access token — no login() call (Yue's new auth flow).
-    # Token source priority: GYD_ACCESS_TOKEN env var > auto-loaded from ~/.GYD_SDK/env.yaml
-    # (stored there by `gatherYourDeals login` + `gatherYourDeals show-token`).
+    # Token priority: per-request JWT (forwarded from caller) >
+    #                 GYD_ACCESS_TOKEN env var (CLI / local testing fallback)
+    resolved_token = token or GYD_ACCESS_TOKEN
     client = GYDClient(GYD_SERVER_URL, auto_persist_tokens=False)
-    if GYD_ACCESS_TOKEN:
-        client._transport.set_tokens(GYD_ACCESS_TOKEN, "")
+    if resolved_token:
+        client._transport.set_tokens(resolved_token, "")
 
     items   = receipt.get("items", [])
     created, failed = [], 0

@@ -101,7 +101,7 @@ def _score_receipt(output_items: list, truth_items: list) -> dict:
     scores["storeName"]    = bool(a_words and b_words and a_words & b_words)
     scores["purchaseDate"] = exact(out0.get("purchaseDate"), tru0.get("purchaseDate"))
 
-    # Lat/lon: pass within 0.01° (~1.1 km) to cover geocoding variance
+    # Lat/lon: pass within 0.02° (~2.2 km) — covers geocoder centroid vs entrance variance
     def coord_match(field):
         a, b = out0.get(field), tru0.get(field)
         if a is None and b is None:
@@ -109,7 +109,7 @@ def _score_receipt(output_items: list, truth_items: list) -> dict:
         if a is None or b is None:
             return False
         try:
-            return abs(float(a) - float(b)) <= 0.01
+            return abs(float(a) - float(b)) <= 0.02
         except (TypeError, ValueError):
             return False
 

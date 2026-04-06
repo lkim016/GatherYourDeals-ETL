@@ -13203,3 +13203,187 @@ RuntimeError: cannot schedule new futures after shutdown
 2026-04-05 00:47:03,302 - 638.704 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
 2026-04-05 00:47:19,182 - 654.585 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
 2026-04-05 00:47:19,220 - 654.623 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_226fa611-d9f7-4d50-8611-f53971a66250.json
+2026-04-05 00:58:00,740 - 124.787 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 00:58:22,434 - 146.481 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 00:58:22,465 - 146.512 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_33c5cb3d-2450-4715-aa01-ab47d5a1dd45.json
+2026-04-05 00:58:22,527 - 146.574 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 00:58:50,757 - 174.804 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 00:58:50,808 - 174.855 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_0663ddf5-0563-4290-8104-2de4f621f3c8.json
+2026-04-05 00:58:50,883 - 174.930 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 00:59:26,259 - 210.306 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 00:59:26,316 - 210.363 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_3a4b0bd8-5359-4793-8a9d-dd04def92a0b.json
+2026-04-05 00:59:26,400 - 210.447 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:00:04,891 - 248.937 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:00:04,925 - 248.972 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_8fb384f3-bc7e-48f7-8806-14beafb62819.json
+2026-04-05 01:00:04,988 - 249.035 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:00:41,995 - 286.042 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:00:42,045 - 286.092 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_639500bb-32a3-445c-885a-bd023f84a280.json
+2026-04-05 01:00:42,117 - 286.164 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:01:30,146 - 334.193 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:01:30,192 - 334.239 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_9818eb9f-0e5b-4157-b7a2-f1839c62cdd3.json
+2026-04-05 01:01:30,246 - 334.293 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:01:45,481 - 349.528 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:01:45,517 - 349.564 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_a369974e-b587-45b6-992d-66e624d6b5b5.json
+2026-04-05 01:01:45,580 - 349.627 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:02:16,871 - 380.918 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:02:16,887 - 380.934 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_60a331b3-3bc4-4932-b875-9635fa205433.json
+2026-04-05 01:02:16,922 - 380.969 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:03:04,527 - 428.574 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:03:04,605 - 428.652 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_39aa8e96-e915-4453-9e06-8675d99eb148.json
+2026-04-05 01:03:04,655 - 428.702 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:03:18,114 - 442.161 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:03:18,141 - 442.188 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_a0ff3b57-8c66-4d92-9c9b-58a50e5e6f20.json
+2026-04-05 01:03:18,177 - 442.224 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:03:39,205 - 463.252 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:03:39,239 - 463.286 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_1ca6d163-8965-44b6-8bf0-a0f8b447083b.json
+2026-04-05 01:03:39,289 - 463.336 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:03:50,180 - 474.227 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:03:50,202 - 474.249 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_44d3b277-6441-44a5-84ee-f6b4e0593f90.json
+2026-04-05 01:03:50,233 - 474.280 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:04:04,277 - 488.324 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:04:04,302 - 488.349 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_2f417824-a805-4322-94c9-67a706970c37.json
+2026-04-05 01:04:04,343 - 488.390 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:05:03,759 - 547.806 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:05:03,774 - 547.821 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_15e6397d-bd15-4f99-9b51-562bea9b360f.json
+2026-04-05 01:05:03,797 - 547.844 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:05:22,551 - 566.598 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:05:22,599 - 566.646 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_42f061fc-9cf2-49f0-84d3-eb0a70924118.json
+2026-04-05 01:05:22,669 - 566.716 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:06:22,378 - 626.425 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:06:22,409 - 626.456 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_90e9d6d9-8cc4-48a3-8012-46f399c10aa1.json
+2026-04-05 01:06:22,455 - 626.502 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:06:36,586 - 640.633 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:06:36,624 - 640.671 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_490b5915-f0a6-48e4-9cbc-66cbe5e8acbc.json
+2026-04-05 01:06:36,686 - 640.733 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:06:52,702 - 656.749 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:06:52,737 - 656.784 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_117db660-fe37-468b-ba6d-82f8571b5437.json
+2026-04-05 01:06:52,807 - 656.854 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:07:05,105 - 669.152 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:07:05,148 - 669.195 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_133467bb-03d3-45a0-b975-a6ab4b35a160.json
+2026-04-05 01:07:05,213 - 669.260 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 01:07:20,524 - 684.571 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 01:07:20,555 - 684.602 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_93046fdc-329a-4fad-a46d-1a360399c173.json
+2026-04-05 02:36:59,097 - 50.358 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:38:30,376 - 49.687 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:38:53,986 - 73.297 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:38:54,010 - 73.321 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_4bcbae39-023e-435e-a397-326b89a8c3c2.json
+2026-04-05 02:38:54,066 - 73.378 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:39:21,942 - 101.254 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:39:21,970 - 101.282 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_e4ad2165-cbea-4975-b6aa-2c8088328ef6.json
+2026-04-05 02:39:22,017 - 101.329 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:39:54,772 - 134.083 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:39:54,812 - 134.123 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_e91e5c59-2b0b-4a5b-a6e9-f36ceb9b4339.json
+2026-04-05 02:39:54,865 - 134.176 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:40:30,267 - 169.579 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:40:30,284 - 169.596 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_006ba0cb-8b0e-430a-abef-7c1bcda4d301.json
+2026-04-05 02:40:30,324 - 169.636 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:41:03,629 - 202.941 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:41:03,664 - 202.976 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_dd518097-a0ca-4382-95b5-58ac84bb72c1.json
+2026-04-05 02:41:03,716 - 203.028 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:41:53,495 - 252.806 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:41:53,517 - 252.828 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_d031109d-ff01-43a2-856d-bca165902bdd.json
+2026-04-05 02:41:53,555 - 252.866 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:42:11,468 - 270.780 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:42:11,487 - 270.798 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_ab6e69d7-118f-4c47-91b1-8195c980187e.json
+2026-04-05 02:42:11,528 - 270.839 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:42:49,700 - 309.012 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:42:49,729 - 309.041 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_44624084-689d-4084-b278-5ef464268aa5.json
+2026-04-05 02:42:49,783 - 309.095 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:43:38,285 - 357.597 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:43:38,306 - 357.618 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_a6fcd008-ea65-4c0f-acb9-fd2cb7811960.json
+2026-04-05 02:43:38,363 - 357.675 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:43:52,025 - 371.337 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:43:52,057 - 371.368 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_631bb989-dbea-4e37-8f7b-ff9207e6677d.json
+2026-04-05 02:43:52,116 - 371.428 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:44:13,395 - 392.706 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:44:13,429 - 392.741 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_a85eb191-bbf3-4c9b-a5f4-a3565362e914.json
+2026-04-05 02:44:13,494 - 392.806 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:44:24,399 - 403.711 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:44:24,436 - 403.747 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_dee96f9e-1df0-4ce3-a3a4-6152a11062b6.json
+2026-04-05 02:44:24,475 - 403.787 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:44:38,289 - 417.600 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:44:38,320 - 417.632 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_db42a219-18d9-4591-ac79-d29b192f2ac5.json
+2026-04-05 02:44:38,369 - 417.680 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:45:32,718 - 472.029 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:45:32,750 - 472.061 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_2f5db2c9-5006-41d3-839a-886bb09bb962.json
+2026-04-05 02:45:32,812 - 472.124 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:45:50,631 - 489.942 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:45:50,652 - 489.964 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_0b4b24ad-be76-4606-aa85-93a47097d21c.json
+2026-04-05 02:45:50,709 - 490.021 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:47:00,707 - 560.019 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:47:00,755 - 560.067 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_0d2c4021-ed7d-47bc-a590-8e38ad795510.json
+2026-04-05 02:47:00,824 - 560.136 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:47:15,748 - 575.059 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:47:15,779 - 575.091 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_2acd0f13-c1b8-4288-b067-90b71abca486.json
+2026-04-05 02:47:15,833 - 575.144 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:47:27,082 - 586.394 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:47:27,113 - 586.425 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_9effb518-0dd7-4c2b-ac54-3674ed8c9a7e.json
+2026-04-05 02:47:27,181 - 586.492 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:47:39,220 - 598.532 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:47:39,242 - 598.554 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_03701de0-fb46-4e32-8532-8bd5a90184b8.json
+2026-04-05 02:47:39,278 - 598.589 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 02:47:54,612 - 613.923 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 02:47:54,649 - 613.960 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_2741feb4-10c5-4cf1-87d8-f4c8a1be11eb.json
+2026-04-05 07:48:49,020 - 109.905 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:49:06,545 - 127.431 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:49:06,579 - 127.464 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_0f130ffc-85a9-4c48-8498-9afe6c6bd91c.json
+2026-04-05 07:49:06,651 - 127.536 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:49:33,110 - 153.995 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:49:33,142 - 154.027 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_c419f96c-6ca2-419f-9ce4-2793dc1c576c.json
+2026-04-05 07:49:33,208 - 154.094 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:50:08,825 - 189.710 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:50:08,851 - 189.736 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_45c83ed7-fa40-47ef-ae49-fc1e124afbfa.json
+2026-04-05 07:50:08,919 - 189.804 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:50:41,287 - 222.172 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:50:41,314 - 222.200 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_7328c16d-095e-4b62-879e-636d05477f78.json
+2026-04-05 07:50:41,398 - 222.283 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:51:16,183 - 257.068 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:51:16,209 - 257.095 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_ddb6bd2a-678d-4a8c-85d4-48bc45d7a978.json
+2026-04-05 07:51:16,278 - 257.163 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:52:03,538 - 304.424 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:52:03,575 - 304.460 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_0797e968-0c9c-476d-9b5a-2012a2116da1.json
+2026-04-05 07:52:03,660 - 304.546 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:52:18,806 - 319.692 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:52:18,853 - 319.739 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_42b5bea3-ffa4-4f31-bab1-68ba9f3f7ef7.json
+2026-04-05 07:52:18,929 - 319.815 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:52:46,179 - 347.064 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:52:46,201 - 347.087 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_c81b7042-06b5-4baa-b2c7-784447152082.json
+2026-04-05 07:52:46,267 - 347.152 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:53:32,424 - 393.310 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:53:32,456 - 393.341 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_deddf191-0674-4e0e-bf6f-a0b44d4105d3.json
+2026-04-05 07:53:32,507 - 393.392 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:53:44,065 - 404.951 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:53:44,089 - 404.975 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_94093b62-aac8-40eb-9586-3938df8242eb.json
+2026-04-05 07:53:44,151 - 405.036 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:54:02,898 - 423.783 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:54:02,937 - 423.822 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_81b38ece-0220-4528-861d-81ca973bc94f.json
+2026-04-05 07:54:03,003 - 423.888 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:54:11,306 - 432.191 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:54:11,321 - 432.207 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_8b2ad185-c959-460a-a4e3-7a9df3e904a3.json
+2026-04-05 07:54:11,359 - 432.244 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:54:22,769 - 443.654 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:54:22,802 - 443.688 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_f9373062-cf7c-4bd6-b29d-7fa679e72ef5.json
+2026-04-05 07:54:22,854 - 443.739 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:55:08,599 - 489.484 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:55:08,634 - 489.520 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_119e55d2-603d-42c7-925e-03bf99de2a31.json
+2026-04-05 07:55:08,705 - 489.590 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:55:24,383 - 505.268 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:55:24,426 - 505.311 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_998599e0-c79e-41c7-bacb-94010f53f2da.json
+2026-04-05 07:55:24,494 - 505.379 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:56:32,001 - 572.886 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:56:32,031 - 572.916 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_c7cb578a-c32d-4e4e-9c0a-3c6d4f04cd75.json
+2026-04-05 07:56:32,089 - 572.975 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:56:48,299 - 589.185 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:56:48,332 - 589.217 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_ee6526e9-d633-4a27-9722-4a65ce4abc7a.json
+2026-04-05 07:56:48,393 - 589.278 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:57:00,589 - 601.475 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:57:00,622 - 601.507 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_006d90f7-8160-499a-95fc-53e368301acd.json
+2026-04-05 07:57:00,685 - 601.570 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:57:12,695 - 613.581 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:57:12,738 - 613.623 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_486d46bb-ed63-40fd-b36a-49719719df0c.json
+2026-04-05 07:57:12,793 - 613.679 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 07:57:27,521 - 628.406 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 07:57:27,556 - 628.441 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_3bb26d11-86be-40c7-89a6-df57cbb344d6.json
+2026-04-05 17:13:37,402 - 102.763 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-05 17:13:51,299 - 116.660 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
+2026-04-05 17:13:51,332 - 116.693 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_f992b8b7-345a-45f6-97ae-f5aba7d17346.json
