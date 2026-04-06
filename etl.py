@@ -2412,6 +2412,7 @@ def main():
             out.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
             print(f"  saved  {out}  ({len(rows)} items)")
             if do_upload:
+                data["imageName"] = img.name
                 created = upload(data, run_id)
                 print(f"  uploaded {len(created)}/{len(rows)} items")
         except Exception as e:

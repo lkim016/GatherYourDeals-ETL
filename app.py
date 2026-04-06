@@ -27,6 +27,7 @@ import os
 import random
 import tempfile
 import time
+import re
 import urllib.parse
 import urllib.request
 import uuid
@@ -95,6 +96,13 @@ def _resolve_source(source: str, run_id: str) -> tuple[Path, str, bool]:
     Raises ValueError / FileNotFoundError on bad input.
     """
     if source.startswith(("http://", "https://")):
+        # Convert Google Drive viewer/sharing URLs to direct download URLs.
+        # Handles: https://drive.google.com/file/d/<id>/view[?...]
+        #          https://drive.google.com/file/d/<id>
+        _gdrive_match = re.search(r"drive\.google\.com/file/d/([^/?#]+)", source)
+        if _gdrive_match:
+            source = f"https://drive.google.com/uc?export=download&id={_gdrive_match.group(1)}"
+
         parsed = urllib.parse.urlparse(source)
         url_filename = Path(parsed.path).name or "receipt.jpg"
         ext = Path(url_filename).suffix.lower()
@@ -243,6 +251,7 @@ async def run_etl(
         )
 
         # --- Upload to GYD service -----------------------------------------
+        data["imageName"] = display_name
         try:
             _etl.upload(data, run_id, token=jwt_token)
         except Exception as exc:
