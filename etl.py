@@ -2274,11 +2274,7 @@ def upload(receipt: dict, run_id: str, token: str | None = None):
     created, failed = [], 0
     start   = time.monotonic()
 
-    # Registry key for this image — used to track uploaded IDs for later deletion.
-    # The registry is a local replica of what's in Yue's database; writes happen
-    # per item so a mid-upload crash doesn't lose IDs that did land in the DB.
     image_name  = receipt.get("imageName", "")
-    image_stem  = Path(image_name).stem or image_name
 
     for item in items:
         try:
@@ -2290,9 +2286,6 @@ def upload(receipt: dict, run_id: str, token: str | None = None):
                 store_name=receipt.get("storeName", ""),
             )
             created.append(r)
-            # Write after each successful create — partial crashes still leave
-            # a usable registry entry for whatever items did land in the DB.
-            _registry_save(image_stem, [x.id for x in created])
         except Exception as e:
             print(f"    [ERROR] upload failed for '{item.get('productName')}': {e}")
             failed += 1

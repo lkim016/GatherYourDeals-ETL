@@ -4,11 +4,18 @@ GatherYourDeals ETL Service
 HTTP wrapper around the ETL pipeline.  Implements the contract defined in
 openapi.yaml:
 
-    POST /etl   { "source": "<image URL or local path>" }
+    POST /etl   { "source": "<image URL, local path, or Google Drive folder URL>" }
                 → { "success": true/false, "message": "..." }
+                  or, for Drive folder sources:
+                → { "success": true/false, "message": "N/M succeeded",
+                    "results": [{"file": "...", "success": ..., "message": "..."}] }
 
-The full pipeline (ADI OCR → LLM structuring → geocode → GYD upload) runs
-synchronously and blocks until complete.
+Single image: the full pipeline (ADI OCR → LLM structuring → geocode → GYD upload)
+runs synchronously and blocks until complete.
+
+Google Drive folder: all image files directly inside the folder are processed in
+sequence.  The folder must be shared as "Anyone with the link can view".
+Requires GOOGLE_API_KEY in .env with the Drive API enabled.
 
 Run:
     uvicorn app:app --host 0.0.0.0 --port 8000
@@ -17,7 +24,8 @@ Environment (.env):
     Same variables as etl.py — AZURE_DI_*, OPENROUTER_API_KEY / CLOD_API_KEY,
     GYD_SERVER_URL, GYD_ACCESS_TOKEN, etc.
     Additional:
-        ETL_DEFAULT_USER=lkim   # username written into receipt JSON metadata
+        ETL_DEFAULT_USER=lkim       # username written into receipt JSON metadata
+        GOOGLE_API_KEY=<key>        # required for Drive folder ingestion
 """
 
 import asyncio
@@ -61,8 +69,17 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 
 _DEFAULT_USER = os.getenv("ETL_DEFAULT_USER", "unknown")
+_GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
 _ALLOWED_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".tiff", ".tif", ".bmp"}
+
+_DRIVE_IMAGE_MIME_TYPES = {
+    "image/jpeg", "image/png", "image/webp",
+    "image/heic", "image/tiff", "image/bmp",
+}
+
+# Matches: https://drive.google.com/drive/folders/<id>[?...]
+_GDRIVE_FOLDER_RE = re.compile(r"drive\.google\.com/drive/folders/([^/?#]+)")
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -138,6 +155,113 @@ def _resolve_source(source: str, run_id: str) -> tuple[Path, str, bool]:
 
 
 # ---------------------------------------------------------------------------
+# Google Drive folder helpers
+# ---------------------------------------------------------------------------
+
+
+def _list_drive_images(folder_id: str) -> list[dict]:
+    """Return all image files directly inside a public Google Drive folder.
+
+    Raises RuntimeError if google-api-python-client is not installed or
+    GOOGLE_API_KEY is not set.
+    """
+    try:
+        from googleapiclient.discovery import build
+    except ImportError:
+        raise RuntimeError(
+            "google-api-python-client is not installed. "
+            "Run: pip install google-api-python-client"
+        )
+    if not _GOOGLE_API_KEY:
+        raise RuntimeError(
+            "GOOGLE_API_KEY is not set — required to list Google Drive folders. "
+            "Add it to your .env file."
+        )
+
+    service = build("drive", "v3", developerKey=_GOOGLE_API_KEY)
+    results = service.files().list(
+        q=f"'{folder_id}' in parents and trashed=false",
+        fields="files(id, name, mimeType)",
+        pageSize=1000,
+    ).execute()
+
+    files = results.get("files", [])
+    images = [f for f in files if f.get("mimeType") in _DRIVE_IMAGE_MIME_TYPES]
+    print(f"[drive] folder={folder_id}: {len(images)} image(s) found "
+          f"({len(files)} total files)")
+    return images
+
+
+# ---------------------------------------------------------------------------
+# Single-image pipeline (shared by single and batch paths)
+# ---------------------------------------------------------------------------
+
+
+async def _process_one(
+    source: str,
+    display_name: str,
+    jwt_token: str | None,
+) -> dict:
+    """Run the full ETL pipeline for one image URL or path.
+
+    Returns a dict with keys: success (bool), message (str).
+    Never raises — all exceptions are caught and returned as failure dicts.
+    """
+    run_id = str(uuid.uuid4())
+    provider = _etl.LLM_PROVIDER
+    model = _etl.CLOD_DEFAULT_MODEL if provider == "clod" else _etl.OR_DEFAULT_MODEL
+
+    try:
+        image_path, resolved_name, is_temp = _resolve_source(source, run_id)
+        # Prefer the caller-supplied display_name (e.g. Drive filename) over
+        # the name derived from the URL, which may be a generic token like "uc".
+        if display_name:
+            resolved_name = display_name
+    except (ValueError, FileNotFoundError) as exc:
+        return {"success": False, "message": str(exc)}
+
+    pipeline_start = time.monotonic()
+    try:
+        try:
+            data = await asyncio.to_thread(
+                _etl.extract, image_path, _DEFAULT_USER, model, run_id, provider
+            )
+        except Exception as exc:
+            total_ms = (time.monotonic() - pipeline_start) * 1000
+            log_pipeline(run_id, resolved_name, _DEFAULT_USER, provider, model,
+                         total_ms, False, str(exc))
+            return {"success": False, "message": f"Failed to parse data from source: {exc}"}
+
+        rows = _etl.flatten_receipt(data)
+        model_slug = model.split("/")[-1].lower()
+        out_dir = _etl.OUTPUT_DIR / f"{provider}-{model_slug}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / (Path(resolved_name).stem + ".json")).write_text(
+            json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+        data["imageName"] = resolved_name
+        try:
+            created = _etl.upload(data, run_id, token=jwt_token)
+        except Exception as exc:
+            total_ms = (time.monotonic() - pipeline_start) * 1000
+            log_pipeline(run_id, resolved_name, _DEFAULT_USER, provider, model,
+                         total_ms, False, f"upload: {exc}")
+            return {"success": False, "message": f"Unexpected error during ETL process: {exc}"}
+
+        image_stem = Path(resolved_name).stem or resolved_name
+        registry = {image_stem: [r.id for r in created]}
+
+        total_ms = (time.monotonic() - pipeline_start) * 1000
+        log_pipeline(run_id, resolved_name, _DEFAULT_USER, provider, model, total_ms, True)
+        return {"success": True, "message": "ETL completed successfully", "registry": registry}
+
+    finally:
+        if is_temp:
+            image_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -187,8 +311,12 @@ async def run_etl(
     mock: bool = Query(False, description="If true, skip real pipeline and sleep through mock latencies (Experiment 1 Phase B)"),
 ):
     """
-    Run the full ETL pipeline (ADI OCR → LLM → geocode → GYD upload) for the
-    receipt image at `source`.  Blocks until complete.
+    Run the full ETL pipeline for a receipt image or a Google Drive folder.
+
+    - Single image: pass any image URL, Google Drive file URL, or local path.
+    - Batch: pass a Google Drive folder URL (shared as "Anyone with the link can view").
+      All image files directly inside the folder are processed in sequence.
+      Requires GOOGLE_API_KEY in .env.
 
     Set `mock=true` to skip real API calls and simulate pipeline latency instead
     (zero cost — for Experiment 1 Phase B load testing).
@@ -206,6 +334,56 @@ async def run_etl(
             content={"success": False, "message": "source address must not be empty"},
         )
 
+    # --- Detect Google Drive folder ----------------------------------------
+    folder_match = _GDRIVE_FOLDER_RE.search(source)
+    if folder_match:
+        folder_id = folder_match.group(1)
+
+        # Mock batch: simulate one pipeline per image slot (use 4 as stand-in)
+        if mock:
+            for _ in range(4):
+                await _run_mock_pipeline()
+            return JSONResponse(
+                status_code=200,
+                content={"success": True, "message": "mock batch ETL completed (4 images simulated)", "results": []},
+            )
+
+        try:
+            images = await asyncio.to_thread(_list_drive_images, folder_id)
+        except RuntimeError as exc:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "message": str(exc)},
+            )
+
+        if not images:
+            return JSONResponse(
+                status_code=200,
+                content={"success": True, "message": "No image files found in folder", "results": []},
+            )
+
+        print(f"\n[etl] batch — {len(images)} image(s) from folder {folder_id}\n")
+        results = []
+        for file in images:
+            download_url = f"https://drive.google.com/uc?export=download&id={file['id']}"
+            result = await _process_one(download_url, file["name"], jwt_token)
+            results.append({"file": file["name"], **result})
+            status = "✓" if result["success"] else "✗"
+            print(f"  {status}  {file['name']} — {result['message']}")
+
+        succeeded = sum(1 for r in results if r["success"])
+        total = len(results)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": succeeded == total,
+                "message": f"{succeeded}/{total} succeeded",
+                "results": results,
+            },
+        )
+
+    # --- Single image -------------------------------------------------------
+
     # --- Mock mode: no real API calls, just sleep through simulated latency --
     if mock:
         await _run_mock_pipeline()
@@ -214,70 +392,9 @@ async def run_etl(
             content={"success": True, "message": "mock ETL completed"},
         )
 
-    run_id = str(uuid.uuid4())
-    provider = _etl.LLM_PROVIDER
-    model = _etl.CLOD_DEFAULT_MODEL if provider == "clod" else _etl.OR_DEFAULT_MODEL
-
-    # --- Resolve source ----------------------------------------------------
-    try:
-        image_path, display_name, is_temp = _resolve_source(source, run_id)
-    except (ValueError, FileNotFoundError) as exc:
-        return JSONResponse(
-            status_code=400,
-            content={"success": False, "message": str(exc)},
-        )
-
-    pipeline_start = time.monotonic()
-    try:
-        # --- OCR + LLM + geocode -------------------------------------------
-        # Run in a thread so Railtracks can create its own event loop without
-        # conflicting with FastAPI's already-running asyncio loop.
-        try:
-            data = await asyncio.to_thread(
-                _etl.extract, image_path, _DEFAULT_USER, model, run_id, provider
-            )
-        except Exception as exc:
-            total_ms = (time.monotonic() - pipeline_start) * 1000
-            log_pipeline(run_id, display_name, _DEFAULT_USER, provider, model,
-                         total_ms, False, str(exc))
-            return JSONResponse(
-                status_code=422,
-                content={"success": False, "message": f"Failed to parse data from source: {exc}"},
-            )
-
-        # --- Persist output JSON -------------------------------------------
-        rows = _etl.flatten_receipt(data)
-        model_slug = model.split("/")[-1].lower()
-        out_dir = _etl.OUTPUT_DIR / f"{provider}-{model_slug}"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / (Path(display_name).stem + ".json")).write_text(
-            json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-
-        # --- Upload to GYD service -----------------------------------------
-        data["imageName"] = display_name
-        try:
-            _etl.upload(data, run_id, token=jwt_token)
-        except Exception as exc:
-            total_ms = (time.monotonic() - pipeline_start) * 1000
-            log_pipeline(run_id, display_name, _DEFAULT_USER, provider, model,
-                         total_ms, False, f"upload: {exc}")
-            return JSONResponse(
-                status_code=500,
-                content={"success": False, "message": f"Unexpected error during ETL process: {exc}"},
-            )
-
-        total_ms = (time.monotonic() - pipeline_start) * 1000
-        log_pipeline(run_id, display_name, _DEFAULT_USER, provider, model, total_ms, True)
-
-        return JSONResponse(
-            status_code=200,
-            content={"success": True, "message": "ETL completed successfully"},
-        )
-
-    finally:
-        if is_temp:
-            image_path.unlink(missing_ok=True)
+    result = await _process_one(source, "", jwt_token)
+    status_code = 200 if result["success"] else 422
+    return JSONResponse(status_code=status_code, content=result)
 
 
 @app.get("/health")

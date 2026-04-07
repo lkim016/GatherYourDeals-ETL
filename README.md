@@ -1,9 +1,9 @@
 # GatherYourDeals-ETL
 
-Receipt digitization pipeline exposed as a REST service. Accepts a receipt image and returns structured line-item JSON via OCR + LLM, orchestrated as a [Railtracks](https://railtracks.org/) Flow.
+Receipt digitization pipeline exposed as a REST service. Accepts a receipt image (or a Google Drive folder of images) and returns structured line-item JSON via OCR + LLM, orchestrated as a [Railtracks](https://railtracks.org/) Flow.
 
 ```
-POST /etl  { "source": "<image URL or local path>" }
+POST /etl  { "source": "<image URL, local path, or Google Drive folder URL>" }
     │
     ▼  Step 1 — Azure Document Intelligence  (prebuilt-read)
     │           Extracts raw text + per-word bounding-box coordinates
@@ -82,7 +82,24 @@ See `docs/setup-azure-di.md` for detailed instructions.
 
 See `docs/llm-provider-setup.md` for model options, pricing, and troubleshooting.
 
-### 4. Azure Maps Geocoding (Step 3 — optional)
+### 4. Google API Key (optional — Drive folder ingestion)
+
+Required only if you want to pass a Google Drive folder URL to `POST /etl`.
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com)
+2. Select any project (or create one — it's just a quota container)
+3. **APIs & Services → Library** → search **Google Drive API** → Enable
+4. **APIs & Services → Credentials → + Create Credentials → API key**
+5. Copy the key into `.env` and your Railway environment variables:
+   ```env
+   GOOGLE_API_KEY=AIzaSy...
+   ```
+
+> The folder does not need to be owned by you — it just needs to be shared as **"Anyone with the link can view"**.
+
+See `docs/general.md` → *Google Drive Folder Ingestion* for full setup details.
+
+### 5. Azure Maps Geocoding (Step 3 — optional)
 
 Resolves the store address into `latitude` / `longitude`.
 If `AZURE_MAPS_KEY` is not set, lat/lon will be `null` in the output.
@@ -91,7 +108,7 @@ If `AZURE_MAPS_KEY` is not set, lat/lon will be `null` in the output.
 2. Choose **Gen2** pricing tier (free: 5,000 geocode requests/month)
 3. After deployment: **Authentication** → copy **Primary Key**
 
-### 5. GYD data service token
+### 6. GYD data service token
 
 The ETL uploads structured receipts to the GYD data service using a JWT access token — no username/password needed.
 
@@ -110,7 +127,7 @@ GYD_ACCESS_TOKEN=<paste token here>
 
 > The token is initialized **per request** (no shared client). If `GYD_ACCESS_TOKEN` is not set, the SDK falls back to tokens auto-loaded from `~/.GYD_SDK/env.yaml` stored by the CLI login.
 
-### 6. Configure `.env`
+### 7. Configure `.env`
 
 ```bash
 cp .env.example .env
@@ -141,7 +158,10 @@ GYD_SERVER_URL=http://localhost:8080/api/v1
 GYD_ACCESS_TOKEN=
 
 # ETL service username written into receipt JSON metadata
-ETL_DEFAULT_USER=user
+ETL_DEFAULT_USER=lkim
+
+# Google Drive folder ingestion (optional — required for Drive folder URLs)
+GOOGLE_API_KEY=
 ```
 
 ---
@@ -158,31 +178,55 @@ uvicorn app:app --host 0.0.0.0 --port 8080 --reload
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/etl` | Run the full ETL pipeline from a remote image address |
+| `POST` | `/etl` | Run the full ETL pipeline — single image or Google Drive folder |
 | `GET` | `/health` | Liveness check |
 
 Interactive API docs available at `http://localhost:8000/docs` once running.
 
-### Example request
+### Example requests
 
+**Single image:**
 ```bash
 curl -X POST http://localhost:8000/etl \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-jwt>" \
   -d '{"source": "https://example.com/receipts/2026-01-03Costco.jpg"}'
 ```
 
-The `source` field accepts any image address — HTTP/HTTPS URL or local file path.
+**Google Drive folder (batch):**
+```bash
+curl -X POST http://localhost:8000/etl \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-jwt>" \
+  -d '{"source": "https://drive.google.com/drive/folders/<folder-id>"}'
+```
+
+The `source` field accepts: HTTP/HTTPS image URLs, Google Drive file/folder URLs, or local file paths.
+Google Drive viewer URLs (`/file/d/<id>/view`) are automatically converted to direct download URLs.
 
 ### Response
 
+**Single image:**
 ```json
 { "success": true, "message": "ETL completed successfully" }
 ```
 
+**Google Drive folder (batch):**
+```json
+{
+  "success": true,
+  "message": "4/4 succeeded",
+  "results": [
+    {"file": "receipt1.jpg", "success": true,  "message": "ETL completed successfully"},
+    {"file": "receipt2.jpg", "success": false, "message": "Failed to parse data from source: ..."}
+  ]
+}
+```
+
 | Status | Meaning |
 |--------|---------|
-| `200` | Pipeline + upload completed successfully |
-| `400` | Empty source, unreachable URL, or unsupported file type |
+| `200` | Pipeline + upload completed successfully (single or batch) |
+| `400` | Empty source, unreachable URL, unsupported file type, or missing `GOOGLE_API_KEY` |
 | `422` | Source reachable but OCR / LLM processing failed |
 | `500` | Upload to GYD service failed |
 
@@ -393,4 +437,4 @@ railtracks viz
 
 Receipt images and large output files are stored on SharePoint:
 
-https://northeastern-my.sharepoint.com/my?id=%2Fpersonal%2Fkim%5Flor%5Fnortheastern%5Fedu%2FDocuments%2FCS6650%20Project&viewid=a5263e9e%2D3e9c%2D4313%2Db199%2De7d2b9d70fc6&startedResponseCatch=true
+[Google Drive - Receipts](https://drive.google.com/drive/folders/1_IiL3p5N3djcDsc1ITYYniyDSqamB_fi)
