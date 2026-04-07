@@ -88,6 +88,7 @@ _GDRIVE_FOLDER_RE = re.compile(r"drive\.google\.com/drive/folders/([^/?#]+)")
 
 class EtlRequest(BaseModel):
     source: str
+    refresh_token: str | None = None
 
 
 class EtlResponse(BaseModel):
@@ -201,6 +202,7 @@ async def _process_one(
     source: str,
     display_name: str,
     jwt_token: str | None,
+    refresh_token: str | None = None,
 ) -> dict:
     """Run the full ETL pipeline for one image URL or path.
 
@@ -242,7 +244,7 @@ async def _process_one(
 
         data["imageName"] = resolved_name
         try:
-            created = _etl.upload(data, run_id, token=jwt_token)
+            created = _etl.upload(data, run_id, token=jwt_token, refresh_token=refresh_token)
         except Exception as exc:
             total_ms = (time.monotonic() - pipeline_start) * 1000
             log_pipeline(run_id, resolved_name, _DEFAULT_USER, provider, model,
@@ -326,6 +328,7 @@ async def run_etl(
     # (used for CLI runs and local testing).
     auth_header = request.headers.get("Authorization", "")
     jwt_token = auth_header.removeprefix("Bearer ").strip() or None
+    refresh_token = body.refresh_token or None
 
     source = (body.source or "").strip()
     if not source:
@@ -366,7 +369,7 @@ async def run_etl(
         results = []
         for file in images:
             download_url = f"https://drive.google.com/uc?export=download&id={file['id']}"
-            result = await _process_one(download_url, file["name"], jwt_token)
+            result = await _process_one(download_url, file["name"], jwt_token, refresh_token)
             results.append({"file": file["name"], **result})
             status = "✓" if result["success"] else "✗"
             print(f"  {status}  {file['name']} — {result['message']}")
@@ -392,7 +395,7 @@ async def run_etl(
             content={"success": True, "message": "mock ETL completed"},
         )
 
-    result = await _process_one(source, "", jwt_token)
+    result = await _process_one(source, "", jwt_token, refresh_token)
     status_code = 200 if result["success"] else 422
     return JSONResponse(status_code=status_code, content=result)
 

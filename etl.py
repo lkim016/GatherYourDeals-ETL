@@ -2254,7 +2254,7 @@ def extract(image_path: Path, user_name: str, model: str, run_id: str,
 # ---------------------------------------------------------------------------
 # Upload via GYD SDK
 # ---------------------------------------------------------------------------
-def upload(receipt: dict, run_id: str, token: str | None = None):
+def upload(receipt: dict, run_id: str, token: str | None = None, refresh_token: str | None = None):
     try:
         from gather_your_deals import GYDClient
     except ImportError:
@@ -2268,7 +2268,7 @@ def upload(receipt: dict, run_id: str, token: str | None = None):
     resolved_token = token or GYD_ACCESS_TOKEN
     client = GYDClient(GYD_SERVER_URL, auto_persist_tokens=False)
     if resolved_token:
-        client._transport.set_tokens(resolved_token, "")
+        client._transport.set_tokens(resolved_token, refresh_token or "")
 
     items   = receipt.get("items", [])
     created, failed = [], 0
