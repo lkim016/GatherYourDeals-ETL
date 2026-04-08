@@ -62,8 +62,10 @@ def delete_receipts(image_name: str) -> list[str]:
     print(f"Found {len(ids)} receipt(s) for '{image_stem}'.")
 
     client = GYDClient(GYD_SERVER_URL, auto_persist_tokens=False)
+    print(f"  [debug] GYD_SERVER_URL={GYD_SERVER_URL}")
+    print(f"  [debug] token prefix={GYD_ACCESS_TOKEN[:20]!r}" if GYD_ACCESS_TOKEN else "  [debug] NO TOKEN SET")
     if GYD_ACCESS_TOKEN:
-        client._transport.set_tokens(GYD_ACCESS_TOKEN, "")
+        client._transport.set_tokens(GYD_ACCESS_TOKEN, os.getenv("GYD_REFRESH_TOKEN", ""))
 
     run_id = str(uuid.uuid4())
     deleted, failed_ids = [], []
@@ -79,7 +81,7 @@ def delete_receipts(image_name: str) -> list[str]:
             print(f"  already gone  {receipt_id}  (not found in DB)")
             deleted.append(receipt_id)
         except Exception as e:
-            print(f"  FAILED  {receipt_id}  — {e}")
+            print(f"  FAILED  {receipt_id}  — {type(e).__name__}: {e}")
             failed_ids.append(receipt_id)
 
     latency_ms = (time.monotonic() - start) * 1000
