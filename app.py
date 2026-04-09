@@ -457,19 +457,31 @@ async def run_etl(
                     content={"success": not gdown_error, "message": msg, "results": []},
                 )
 
-        results = []
-        for entry in file_pairs:
+        _BATCH_LIMIT = 14
+        if len(file_pairs) > _BATCH_LIMIT:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "message": f"We only allow up to {_BATCH_LIMIT} pictures in a folder for scanning at once.",
+                },
+            )
+
+        _ADI_SEM = asyncio.Semaphore(14)  # ADI S0 cap is 15 — keep one slot free
+
+        async def _process_one_limited(entry):
             if len(entry) == 3:  # download error from OAuth path
                 _, file_name, err_msg = entry
-                results.append({"file": file_name, "success": False, "message": f"Download failed: {err_msg}"})
                 print(f"  ✗  {file_name} — download failed: {err_msg}")
-                continue
-
+                return {"file": file_name, "success": False, "message": f"Download failed: {err_msg}"}
             image_bytes, file_name = entry
-            result = await _process_one(image_bytes, file_name, jwt_token, refresh_token)
-            results.append({"file": file_name, **result})
+            async with _ADI_SEM:
+                result = await _process_one(image_bytes, file_name, jwt_token, refresh_token)
             status = "✓" if result["success"] else "✗"
             print(f"  {status}  {file_name} — {result['message']}")
+            return {"file": file_name, **result}
+
+        results = list(await asyncio.gather(*[_process_one_limited(e) for e in file_pairs]))
 
         succeeded = sum(1 for r in results if r["success"])
         total = len(results)

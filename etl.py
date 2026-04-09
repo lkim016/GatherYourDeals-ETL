@@ -1469,7 +1469,7 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
       9. Strip unrecognised unit codes from amount.
     """
     _PRICE_RE       = re.compile(r"(\d+\.?\d*)")
-    _UNIT_STRIP     = re.compile(r"\b(W|EA|PK|F|PC|CT|BG|LT|BT|CN|OZ|MRJ|each)\b", re.IGNORECASE)
+    _UNIT_STRIP     = re.compile(r"\b(W|EA|PK|F|N|X|O|T|PC|CT|BG|LT|BT|CN|OZ|MRJ|RQ|FV|IQF|WLD|each)\b", re.IGNORECASE)
     _PRICE_FMT      = re.compile(r"^\d+\.\d{2}\s*[A-Za-z]?$")  # "4.79", "4.79S", "4.79 S"
     _ITEM_CODE      = re.compile(r"^\d{4,}\s+")            # leading 4+ digit item/barcode code
     _PRICE_LETTER   = re.compile(r"^(\d+\.?\d*)[A-Za-z]+$")  # "11.99A", "8.99N"
@@ -1495,13 +1495,16 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
         r"(www\.|\.com\b|\.org\b|jobs\.|"          # URLs
         r"^[Aa][0-9a-fA-F]{8,}|"                   # EMV AID e.g. A0000000031010
         r"^\d{2,3}\s+[A-Z]{2,}|"                   # "00 APPROVED", "03 DECLINED"
-        r"^item\s+\d+$|"                            # "Item 1", "Item 2"
+        r"^item\s*\d*$|"                            # "Item", "Item 1", "Item 2"
         r"^\*{2,}|"                                 # "*** CUSTOMER COPY ***"
         r"^mgr:|^date:|^time:|"                     # manager/timestamp footer fields
         r"^\(sale\)\s*$|"                           # bare "(SALE)" line
         r"^\(?\d{3}\)?[\s\-]\d{3}[\s\-]\d{4}|"     # phone numbers (604) 688-0911
         r"^\d{2}/\d{2}/\d{2,4}\s+\d{1,2}:\d{2}|"  # timestamps 02/19/26 7:53:13 PM
-        r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})",      # ISO timestamps 2026-02-19 07:53
+        r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}|"       # ISO timestamps 2026-02-19 07:53
+        r"^\d+[A-Za-z]{1,2}\s+\d+$|"               # OCR noise: "1mt 4", "3oz 2"
+        r"^[A-Za-z]{1,2}mt\s+\d+$|"                # OCR noise: "Imt 6", "imt 4"
+        r"^[a-z]{4,8}[0-9]?$)",                    # all-lowercase garbled OCR: "euoju", "emo2"
         re.IGNORECASE,
     )
     # Sale-modifier prefix — remove "(SALE)" prefix from duplicated item names
@@ -1630,6 +1633,15 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
                 if ratio >= 0.85:   # 85% similarity at same price → duplicate
                     is_dup = True
                     break
+                # Token-overlap check: catches abbreviated vs full-name pairs
+                # e.g. "ORG FR EGGS" vs "Organic Free Range Eggs" at same price
+                a_toks = set(re.findall(r"[a-z0-9]{3,}", name_raw))
+                b_toks = set(re.findall(r"[a-z0-9]{3,}", kept_name))
+                if a_toks and b_toks:
+                    overlap = len(a_toks & b_toks) / min(len(a_toks), len(b_toks))
+                    if overlap >= 0.6:  # ≥60% token overlap at same price → duplicate
+                        is_dup = True
+                        break
         if not is_dup:
             deduped.append(item)
 
@@ -1972,6 +1984,132 @@ def _extract_address_from_ocr(ocr_text: str, store_name: str) -> str:
     return street_line
 
 
+# Regex for dates paired with a transaction time — the most reliable way to
+# identify the actual purchase timestamp vs promotional/contest dates.
+_TX_DATE_TIME_RE = re.compile(
+    r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})\s+\d{1,2}:\d{2}'   # MM/DD/YY HH:MM
+    r'|(\d{4}[/\-]\d{2}[/\-]\d{2})\s+\d{2}:\d{2}',           # YYYY-MM-DD HH:MM
+)
+# Months for written-out dates like "Feb 10 2026"
+_MONTH_NAMES = {
+    "jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
+    "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12,
+}
+_WRITTEN_DATE_RE = re.compile(
+    r'\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2})\s+(20\d{2})\b',
+    re.IGNORECASE,
+)
+
+
+def _extract_transaction_date(ocr_text: str) -> str | None:
+    """
+    Scan raw OCR for a date that is paired with a transaction time (HH:MM).
+    Returns YYYY.MM.DD string, or None if no clear transaction date found.
+
+    Prefers:
+      1. A date+time pair where year ≥ 2022 (filters 2-digit year ambiguity).
+      2. A written-out date like "Feb 10 2026" (unambiguous 4-digit year).
+    Skips dates that appear after promotional keywords (through/until/expires).
+    """
+    raw = ocr_text.split("\n---\n")[0] if "\n---\n" in ocr_text else ocr_text
+
+    # Mark lines that are promotional context so we can skip their dates.
+    promo_re = re.compile(r'\b(through|until|expires?|ending|by|enter\s+by|earn\s+plays)\b', re.IGNORECASE)
+
+    best: str | None = None
+
+    for m in _TX_DATE_TIME_RE.finditer(raw):
+        # Check if this date appears after a promo keyword on the same/preceding line
+        line_start = raw.rfind('\n', 0, m.start()) + 1
+        surrounding = raw[max(0, line_start - 80):m.start()]
+        if promo_re.search(surrounding):
+            continue
+
+        raw_date = m.group(1) or m.group(2)
+        parts = re.split(r'[/\-]', raw_date)
+        if len(parts) != 3:
+            continue
+        try:
+            a, b, c = int(parts[0]), int(parts[1]), int(parts[2])
+        except ValueError:
+            continue
+
+        # Determine YYYY.MM.DD based on length of first part
+        if len(parts[0]) == 4:          # YYYY-MM-DD
+            yr, mo, dy = a, b, c
+        elif c >= 100:                  # MM/DD/YYYY or DD/MM/YYYY — year is last
+            yr = c
+            # Guess MM/DD if first value ≤ 12, else DD/MM
+            if a <= 12 and b <= 31:
+                mo, dy = a, b
+            else:
+                mo, dy = b, a
+        else:                           # 2-digit year: MM/DD/YY
+            yr = 2000 + c
+            if a <= 12 and b <= 31:
+                mo, dy = a, b
+            else:
+                mo, dy = b, a
+
+        if yr < 2022 or mo < 1 or mo > 12 or dy < 1 or dy > 31:
+            continue
+        best = f"{yr}.{mo:02d}.{dy:02d}"
+        break  # first valid date+time pair wins
+
+    # Fallback: look for an explicit written date with 4-digit year (e.g. "Feb 10 2026")
+    if not best:
+        for m in _WRITTEN_DATE_RE.finditer(raw):
+            surrounding = raw[max(0, m.start() - 80):m.start()]
+            if promo_re.search(surrounding):
+                continue
+            mo = _MONTH_NAMES.get(m.group(1)[:3].lower())
+            dy = int(m.group(2))
+            yr = int(m.group(3))
+            if mo and 2022 <= yr <= 2030 and 1 <= dy <= 31:
+                best = f"{yr}.{mo:02d}.{dy:02d}"
+                break
+
+    return best
+
+
+# Known location/neighborhood names that LLMs sometimes hallucinate as store names.
+# Maps OCR-visible chain keyword → canonical store name.
+_LOCATION_OVERRIDES: dict[str, str] = {
+    "TARGET":   "Target",
+}
+_KNOWN_CHAIN_RE = re.compile(
+    r'\b(target|kroger|walmart|wal-mart|vons|ralphs|safeway|albertsons|costco'
+    r'|no\s+frills|real\s+canadian|t&t\s+supermarket|your\s+independent\s+grocer'
+    r'|independent\s+grocer|kin\'?s\s+farm|house\s+of\s+dosa|ingles|farm\s*&\s*table'
+    r'|publix|heb|whole\s+foods|trader\s+joe|marquis\s+wine)\b',
+    re.IGNORECASE,
+)
+_CHAIN_NAMES: dict[str, str] = {
+    "target": "Target", "kroger": "Kroger", "walmart": "Walmart",
+    "vons": "Vons", "ralphs": "Ralphs", "safeway": "Safeway",
+    "costco": "Costco Wholesale", "ingles": "Ingles",
+}
+
+
+def _correct_store_name_from_ocr(store_name: str, ocr_text: str) -> str:
+    """
+    If the LLM returned a location/neighborhood name instead of a chain name,
+    scan the first 10 lines of OCR for a known chain keyword and substitute.
+    """
+    # If the current store name already contains a known chain keyword, keep it.
+    if _KNOWN_CHAIN_RE.search(store_name):
+        return store_name
+
+    # Otherwise scan OCR header (first 10 lines) for a chain name.
+    header = "\n".join(ocr_text.splitlines()[:10])
+    m = _KNOWN_CHAIN_RE.search(header)
+    if m:
+        key = m.group(1).lower().split()[0]  # first significant word
+        return _CHAIN_NAMES.get(key, m.group(1).title())
+
+    return store_name
+
+
 def structure(ocr_text: str, display_name: str, user_name: str,
               model: str, run_id: str, provider: str | None = None) -> dict:
     """
@@ -2068,6 +2206,13 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         # Tier 2c — normalise store name first so Canadian-store CAD inference works.
         if result.get("storeName"):
             result["storeName"] = _normalize_store_name(result["storeName"])
+            result["storeName"] = _correct_store_name_from_ocr(result["storeName"], ocr_text)
+
+        # Tier 2d — override LLM date with deterministic OCR scan when model picks
+        # a promotional date (e.g. contest end date) instead of the transaction date.
+        ocr_date = _extract_transaction_date(ocr_text)
+        if ocr_date:
+            result["purchaseDate"] = ocr_date
 
         # Override LLM-extracted currency with deterministic OCR scan so
         # small models that default to "USD" are corrected for CA/GB/EU receipts.
@@ -2309,18 +2454,31 @@ def upload(receipt: dict, run_id: str, token: str | None = None, refresh_token: 
 
     image_name  = receipt.get("imageName", "")
 
+    _UPLOAD_MAX_RETRIES = 3
+    _UPLOAD_RETRY_DELAY = 1.0  # seconds between retries
+
     for item in items:
-        try:
-            r = client.receipts.create(
-                product_name=item.get("productName", ""),
-                purchase_date=receipt.get("purchaseDate", ""),
-                price=item.get("price", "0.00USD"),
-                amount=str(item.get("amount", "1")),
-                store_name=receipt.get("storeName", ""),
-            )
-            created.append(r)
-        except Exception as e:
-            print(f"    [ERROR] upload failed for '{item.get('productName')}': {e}")
+        product_name = item.get("productName", "")
+        last_exc = None
+        for attempt in range(1, _UPLOAD_MAX_RETRIES + 1):
+            try:
+                r = client.receipts.create(
+                    product_name=product_name,
+                    purchase_date=receipt.get("purchaseDate", ""),
+                    price=item.get("price", "0.00USD"),
+                    amount=str(item.get("amount", "1")),
+                    store_name=receipt.get("storeName", ""),
+                )
+                created.append(r)
+                last_exc = None
+                break
+            except Exception as e:
+                last_exc = e
+                if attempt < _UPLOAD_MAX_RETRIES:
+                    print(f"    [WARN] upload attempt {attempt}/{_UPLOAD_MAX_RETRIES} failed for '{product_name}': {e} — retrying in {_UPLOAD_RETRY_DELAY}s")
+                    time.sleep(_UPLOAD_RETRY_DELAY)
+        if last_exc is not None:
+            print(f"    [ERROR] upload failed for '{product_name}' after {_UPLOAD_MAX_RETRIES} attempts: {last_exc}")
             failed += 1
 
     latency_ms = (time.monotonic() - start) * 1000
@@ -2431,7 +2589,7 @@ def main():
         print(f"\n→ {img.name}")
         _start = time.monotonic()
         try:
-            data = extract(img, args.user, resolved_model, run_id, provider=args.provider,
+            data = extract(img, img.name, args.user, resolved_model, run_id, provider=args.provider,
                            use_cache=not args.no_ocr_cache)
             total_ms = (time.monotonic() - _start) * 1000
             log_pipeline(run_id, img.name, args.user, args.provider, resolved_model, total_ms, True)

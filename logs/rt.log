@@ -13591,3 +13591,75 @@ RuntimeError: cannot schedule new futures after shutdown
 2026-04-08 00:06:52,844 - 699.746 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
 2026-04-08 00:07:33,321 - 740.223 - INFOs - RT.railtracks.state.state - receipt_pipeline DONE
 2026-04-08 00:07:33,354 - 740.257 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_371adcf9-c459-41b2-8743-a62da96f7b8d.json
+2026-04-08 18:35:17,127 - 61.069 - INFOs - RT.railtracks.state.state - START CREATED receipt_pipeline
+2026-04-08 18:36:05,316 - 109.259 - ERRORs - RT.railtracks.state.state - receipt_pipeline FAILED
+Traceback (most recent call last):
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 2260, in structure
+    log_llm(run_id, display_name, user_name, resolved_provider, model,
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl_logger.py", line 63, in log_llm
+    _log({
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl_logger.py", line 24, in _log
+    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 238, in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/encoder.py", line 200, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/encoder.py", line 258, in iterencode
+    return _iterencode(o, 0)
+           ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/encoder.py", line 180, in default
+    raise TypeError(f'Object of type {o.__class__.__name__} '
+TypeError: Object of type PosixPath is not JSON serializable
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/execution/execution_strategy.py", line 52, in execute
+    result = await invoke_func()
+             ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/execution/task.py", line 36, in invoke
+    return await self.node.tracked_invoke()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 149, in tracked_invoke
+    raise e
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 147, in tracked_invoke
+    return await self.invoke()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/nodes/nodes.py", line 81, in async_wrapper
+    return await method(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/venv/lib/python3.12/site-packages/railtracks/built_nodes/concrete/function_base.py", line 136, in invoke
+    return await self.func(*self.args, **self.kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 2384, in receipt_pipeline
+    result, total_pt, total_ct, total_cost = await asyncio.to_thread(
+                                             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl.py", line 2269, in structure
+    log_llm(run_id, display_name, user_name, resolved_provider, model,
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl_logger.py", line 63, in log_llm
+    _log({
+  File "/mnt/c/Users/Lolo/Desktop/Khoury/Semesters/2026-5Spr/CS6650/Final/GatherYourDeals-ETL/etl_logger.py", line 24, in _log
+    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 238, in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/encoder.py", line 200, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/encoder.py", line 258, in iterencode
+    return _iterencode(o, 0)
+           ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/encoder.py", line 180, in default
+    raise TypeError(f'Object of type {o.__class__.__name__} '
+TypeError: Object of type PosixPath is not JSON serializable
+2026-04-08 18:36:05,659 - 109.601 - INFOs - RT.railtracks._session - Saving execution info to .railtracks/data/sessions/receipt_etl_21e853e2-dbd1-43b9-b66f-198879e73f16.json
