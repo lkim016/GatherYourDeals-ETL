@@ -113,7 +113,7 @@ _active_ocr_calls = 0
 # Patched OCR — simulates Azure Document Intelligence
 # ---------------------------------------------------------------------------
 
-def _mock_ocr(image_path, run_id, user_id="", **kwargs):
+def _mock_ocr(image_path, display_name, run_id, user_id="", **kwargs):
     global _active_ocr_calls
 
     with _active_ocr_lock:
@@ -160,7 +160,7 @@ def _mock_structure(ocr_text, image_path, user_name, model, run_id,
 # Patched upload — no-op, GYD service not called
 # ---------------------------------------------------------------------------
 
-def _mock_upload(receipt, run_id):
+def _mock_upload(receipt, run_id, token=None, refresh_token=None):
     return []
 
 
@@ -212,4 +212,32 @@ if __name__ == "__main__":
     print(f"[integration] Send requests to POST http://localhost:{args.port}/etl")
     print()
 
-    uvicorn.run("start_integration:app", host="0.0.0.0", port=args.port, workers=args.workers)
+    if args.workers == 1:
+        uvicorn.run(app, host="0.0.0.0", port=args.port, log_level="info")
+    else:
+        # uvicorn's built-in workers= mode fails on WSL2 (child processes die
+        # immediately during their own startup).  Work around it by pre-binding
+        # the socket in the parent and forking workers manually.  Linux fork()
+        # copies the parent's memory, so each worker already has the patched
+        # etl module and the bound socket — no re-import needed.
+        import socket as _socket
+        import multiprocessing as _mp
+
+        _sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        _sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        _sock.bind(("0.0.0.0", args.port))
+        _sock.listen(1024)
+
+        def _run_worker():
+            uvicorn.run(app, fd=_sock.fileno(), log_level="info")
+
+        _procs = [_mp.Process(target=_run_worker) for _ in range(args.workers)]
+        for _p in _procs:
+            _p.start()
+        try:
+            for _p in _procs:
+                _p.join()
+        except KeyboardInterrupt:
+            for _p in _procs:
+                _p.terminate()
+            _sock.close()

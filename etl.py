@@ -153,36 +153,22 @@ if _RT_AVAILABLE:
 # LLM prompt — receives markdown-formatted OCR text, returns structured JSON
 # ---------------------------------------------------------------------------
 _SYSTEM_PROMPT = """\
-You are a receipt data structuring assistant.
-You are given markdown-formatted OCR text extracted from a receipt image by \
-Azure Document Intelligence. The markdown may contain tables — use them to \
-accurately identify line items, quantities, and prices.
+You are a receipt data structuring assistant. Given markdown OCR text from Azure Document Intelligence (may include tables and a SPATIAL LAYOUT section), extract structured receipt data.
 
 ## Extraction process
 
-Work through the receipt in three steps. Show your work in the tagged sections \
-below, then output the final JSON. This reduces errors on messy receipts.
+Work through three steps below, then output JSON. This reduces errors on messy receipts.
 
 <spans>
-Quote verbatim from the OCR text:
-- HEADER: the store name, address, and date/time block
-- ITEMS: every product line item row exactly as printed
-- TOTALS: subtotal, tax, total, and payment lines
+Quote verbatim: HEADER (store, address, date/time), ITEMS (every product line row), TOTALS (subtotal, tax, total, payment).
 </spans>
 
 <extract>
-Using the SPATIAL LAYOUT section (if present), reconstruct receipt rows first:
-- Each row follows: [L] ITEM NAME  [C] QTY (optional)  [R] PRICE
-- Prices are always right-aligned ([R] column) — never assign a [L] or [C] value as price
-- Quantities / weights are center-aligned ([C]) or follow the item name in [L]
-- [S] marks a store savings/discount row — its [R] or [C] value is a discount applied to the item in the [L] row immediately above it. Subtract it to get the final charged price (e.g. [R] 2.49 then [S][C] 0.50 → final price 1.99). Do NOT create a separate item for [S] rows. [S] rows always have raw_amount = null.
-- If no SPATIAL LAYOUT, use the markdown table rows
-
-Then list raw extracted values:
-- date: <raw date string>
-- time: <raw time string>
-- currency: <symbol or code found>
-- For each item row: productName | itemCode | raw_price | raw_amount | category
+From SPATIAL LAYOUT if present ([L]=item name  [C]=center/qty  [R]=price  [S]=savings row):
+- [S] rows = discounts on the item above; subtract from that item's price, do NOT extract as items
+- Per product row: productName | itemCode | raw_price | raw_amount | category
+- Also: date | time | currency
+If no SPATIAL LAYOUT, use markdown table rows.
 </extract>
 
 <json>
@@ -191,58 +177,52 @@ Then list raw extracted values:
 
 ## Output schema
 
-{
-  "storeName":     string | null,
-  "storeAddress":  string | null,
-  "purchaseDate":  string | null,
-  "purchaseTime":  string | null,
-  "currency":      string | null,
-  "items": [
-    {
-      "productName": string | null,
-      "itemCode":    string | null,
-      "price":       string | null,
-      "amount":      string | null,
-      "category":    string | null
-    }
-  ],
-  "totalItems":    integer | null,
-  "subtotal":      string | null,
-  "tax":           string | null,
-  "total":         string | null,
-  "paymentMethod": string | null
-}
+{"storeName":string|null,"storeAddress":string|null,"purchaseDate":string|null,"purchaseTime":string|null,"currency":string|null,"items":[{"productName":string|null,"itemCode":string|null,"price":string|null,"amount":string|null,"category":string|null}],"totalItems":integer|null,"subtotal":string|null,"tax":string|null,"total":string|null,"paymentMethod":string|null}
 
 ## Rules
 
-- Include only purchasable product line items. Skip ALL of the following:
-  - Deposits, recycling fees, donations, bag fees, CA Redemption Value / CRV lines. Note: recycling fees may appear as OCR variants like "RECYCLING FEL" — skip these regardless of OCR quality.
-  - Tax, subtotal, total, payment method, change-due, and savings/discount summary lines.
-  - Payment terminal / card slip data: card numbers, transaction IDs, reference numbers (Ref. #), auto numbers (Auto #), approval codes ("APPROVED", "DECLINED"), EMV application identifiers (strings starting with A000...), "CUSTOMER COPY", "RETAIN THIS COPY", "DateTime", "Visa Credit", "Debit Card".
-  - Barcodes and item codes: numeric-only strings or alphanumeric codes ending in F, H, N, or X that appear on their own line adjacent to a product name (e.g. "007874237159 F", "003700071650H", "068113102405H"). These are inventory/tax codes — never extract them as a productName. If a barcode line has a price in [C], that price belongs to the product name on the adjacent line above or below.
-  - Promotional and footer text: survey URLs (www., .com), loyalty point promotions ("EARN X FUEL POINTS", "FUEL POINTS"), thank-you messages, employee/manager contact lines (MGR:), job listings, store website addresses, feedback solicitations.
-  - Sale/discount modifier lines: lines like "(SALE)", "MEMBER SAVINGS", "INSTANT SAVINGS", "DIGITAL COUPON", "PRICE REDUCTION" that appear below an item and modify its price — do not extract these as separate items.
-  - Department/section header lines: lines that are purely a category label such as "GROCERY", "PRODUCE", "REFRIG/FROZEN", "MISCELLANEOUS", or numeric department codes like "22-DAIRY", "27-PRODUCE", "31-MEATS", "33-BAKERY INSTORE". These divide the receipt into sections — they are not products.
-  - OCR noise and unreadable text: garbled strings that are clearly not product names (e.g. "lonipito diiv", "ug lo zyob", "euoju", "Imt 6", "SC 3547 A", "SC 3547"). If a token does not resemble a real product name, skip it.
-  - Never create placeholder items with generic names like "Item", "Food", "Product", "Unknown", or numbered variants like "Item 1". If you cannot identify a clear product name from the spatial layout, skip that row entirely.
-- Duplicate purchases: if the same product appears on multiple separate line item rows (the customer bought it more than once), extract it once per row — do NOT deduplicate. Each line is a separate purchase transaction. Example: three separate rows for "BONDUELLE BISTRO" → extract three items, not one.
-- storeName must be the store's retail chain brand as printed in the receipt header (e.g. "Target", "Costco Wholesale", "Your Independent Grocer", "T&T Supermarket"). Never use a city, neighborhood, district, or branch location name (e.g. "Anaheim Hills") — those appear in the address block, not as the store brand.
-- purchaseDate must be the transaction date, formatted YYYY.MM.DD — always dots as separators, never hyphens or slashes (e.g. "2026-03-08" → "2026.03.08"). If the year looks implausible (before 2021) you are likely reading a receipt number, time, or barcode — re-examine the receipt for the correct date. When multiple dates appear, prefer the date immediately paired with a transaction time (HH:MM or HH:MM:SS) — that pairing identifies the actual transaction timestamp. Dates that appear in promotional or contest text (after words like "through", "until", "expires", "ending", "by", "enter by") are promotion deadlines, not the transaction date — skip them. When a receipt shows both a 2-digit year date (e.g. "02/10/20") and an explicit written date with a 4-digit year (e.g. "Feb 10 2026"), always prefer the 4-digit year date.
-- price is the total amount charged for that line item as shown in the right-hand price column. Do not use per-unit rates, per-oz prices, or any divided amount. Always include the currency code: "4.79USD" not "4.79". When a receipt prints two price values per line (e.g. a "Price" column and a "You Pay" or "Sale" column), use the amount actually charged — the lower value or the one marked with S, "You Pay", or "Sale". Example: `[R] 4.99  [R] 4.79 S` → use 4.79 (the S-marked charged price). Never assign the receipt subtotal, tax line, balance, or total as the price of any item — those appear after all line items. Exception — [C] column prices: if an item has a value in [C] but no [R] value, and the receipt consistently shows no right-hand price column at all, treat the [C] value as the price.
-- amount is a count or weight only — never a price. Preserve recognized unit suffixes (lb, lbs, kg, oz, g); strip only truly unrecognised codes. Examples: "1.160kg", "4lb", "2" are valid amounts. Important edge cases:
-  - Tax/category flag codes that appear after prices (e.g. F, N, X, O, T, or a trailing "0") are tax indicators, not quantities — they are not the amount. Set amount=1 when no explicit count or weight appears for that item.
-  - Percentage values embedded in product names are product specifications, not amounts (e.g. "HMGZD MILK 3.25%" — the "3.25%" is the fat content, amount=1).
-  - Short qualifier abbreviations appended to product names (e.g. WLD, IQF, MRJ, RQ, FV) are product descriptors, not amounts — amount=1.
-  - If the product name begins with a weight or count prefix (e.g. "4LB Honeycrisp Apples", "3-Pack Paper Towels"), extract that prefix as the amount (e.g. "4lb", "3").
-- Weight-priced items: some receipts print "1.160 kg @ $1.72/kg  2.00" — set amount to the weight ("1.160kg") and price to the total charged ("2.00CAD"), not the per-kg rate. The weight string itself (e.g. "1.160 kg @ $1.72/kg 2.00" or "0.510 kg @ $4.14/kg") is metadata for the item above it — NEVER extract it as a separate productName. It has no productName of its own.
-- If a markdown table is present, each row is one line item — do not merge or split rows.
-- Column anchoring: each receipt row follows [ITEM NAME] [QTY optional] [PRICE]. Prices are typically right-aligned — do not assign a [L] value as a price, and do not assign a [R] value as a quantity. If no [R] price column exists for any row in the receipt, a [C] value may be the price (see price rule above).
+**Skip** — include only purchasable product line items; exclude:
+- Fees: deposits, recycling (incl. OCR variants like "RECYCLING FEL"), bag fees, CRV/CA redemption
+- Financials: tax, subtotal, total, change, payment method, savings/discount summary lines
+- Payment terminal: card/transaction/ref/auto IDs, approval codes, EMV AIDs (A000...), "CUSTOMER COPY", "Visa Credit", "Debit Card"
+- Barcodes: numeric-only or codes ending in F/H/N/X on their own line — never a productName; if such a line has a [C] price, it belongs to the adjacent product row
+- Promotional/footer: URLs, fuel point offers, thank-you messages, MGR: lines, job listings, NOW HIRING, feedback solicitations
+- Sale modifiers: (SALE), MEMBER SAVINGS, INSTANT SAVINGS, DIGITAL COUPON, PRICE REDUCTION — adjust a price, not separate items
+- Department headers: GROCERY, PRODUCE, REFRIG/FROZEN, MISCELLANEOUS, numeric codes (22-DAIRY, 31-MEATS, etc.)
+- OCR noise: garbled strings not resembling a product name (e.g. SC 3547, Imt 6, euoju)
+- Placeholders: never invent names like "Item", "Food", "Unknown" — skip unidentifiable rows
+
+**storeName** — retail chain brand from the receipt header (e.g. "Target", "Costco Wholesale", "T&T Supermarket"). Never use a city, district, or branch name from the address block.
+
+**purchaseDate** — transaction date as YYYY.MM.DD (dots only):
+- Year before 2021 → likely a barcode/receipt number; re-examine
+- Multiple dates → prefer the one paired with a transaction time (HH:MM)
+- Dates after "through"/"until"/"expires"/"ending" → promotional deadlines, skip
+- 2-digit year alongside explicit 4-digit year → always prefer the 4-digit year
+
+**price** — total charged for the line item; always append currency code ("4.79USD"). Never use per-unit rates.
+- Two [R] prices (regular + sale): use the charged amount — lower value or one marked S/"You Pay"/"Sale". `[R] 4.99  [R] 4.79 S` → 4.79
+- [C] price: if a row has a numeric [C] but no [R], use the [C] value as price. Evaluate per-row independently — do not skip these items. `[L] KRO CREAMER | [C] 1.99 | [C] F` → price=1.99 (F is a tax code)
+- Row-shift error: if a row shows two [R] prices and the row immediately above has no [R], the first [R] belongs to the item above. Cross-check raw OCR order. Raw: `EMBS CASERA SLSA / 1.49 F / CAMPBELLS SOUP / 1.99 F` but layout puts both on CAMPBELLS → assign 1.49 to EMBS CASERA SLSA, 1.99 to CAMPBELLS SOUP
+- Never use subtotal, tax, balance, or total as a price
+
+**amount** — count or weight only; preserve unit suffixes (lb, kg, oz, g); never a price:
+- Tax/flag codes after prices (F, N, X, O, T, trailing 0) → not amounts; set amount=1
+- % in name → product spec, not amount ("MILK 3.25%" → amount=1)
+- Product descriptor suffixes (WLD, IQF, MRJ, RQ, FV) → not amounts; set amount=1
+- Weight/count prefix in name ("4LB Honeycrisp Apples") → extract as amount ("4lb")
+
+**Weight-priced items** — "1.160 kg @ $1.72/kg  2.00": amount="1.160kg", price="2.00CAD". The weight-rate string is metadata for the item above — never a separate productName.
+
+**Duplicates** — same product on multiple rows = multiple purchases; extract each row separately, do not deduplicate.
+
+**Markdown tables** — each row = one item; do not merge or split rows.
 
 ## Handling ambiguity
 
-- If multiple candidate values exist for the same field (e.g. two dates, two totals), choose the most recent or most prominent one.
-- If confidence in a field value is low — the text is unclear, partially obscured, or contradictory — return null rather than guessing.
-- Do not fabricate or infer values that are not explicitly present in the OCR text. If a field is not visible, output null."""
+- Multiple candidates for a field → use most recent or most prominent
+- Low confidence → return null, never guess
+- Never fabricate values absent from the OCR text"""
 
 # Leaner prompt — no chain-of-thought scaffolding.
 # Used for simple (single-chunk, spatial-layout) receipts to cut output tokens
@@ -250,28 +230,16 @@ Then list raw extracted values:
 # thinking scaffold is removed.
 _COT_SECTION = (
     "\n## Extraction process\n\n"
-    "Work through the receipt in three steps. Show your work in the tagged sections "
-    "below, then output the final JSON. This reduces errors on messy receipts.\n\n"
-    "<spans>\nQuote verbatim from the OCR text:\n"
-    "- HEADER: the store name, address, and date/time block\n"
-    "- ITEMS: every product line item row exactly as printed\n"
-    "- TOTALS: subtotal, tax, total, and payment lines\n"
+    "Work through three steps below, then output JSON. This reduces errors on messy receipts.\n\n"
+    "<spans>\n"
+    "Quote verbatim: HEADER (store, address, date/time), ITEMS (every product line row), TOTALS (subtotal, tax, total, payment).\n"
     "</spans>\n\n"
-    "<extract>\nUsing the SPATIAL LAYOUT section (if present), reconstruct receipt rows first:\n"
-    "- Each row follows: [L] ITEM NAME  [C] QTY (optional)  [R] PRICE\n"
-    "- Prices are right-aligned ([R] column) in most receipts — do not assign [L] values as price. Exception: if no [R] price column exists at all and an item has only a [C] value, that [C] value is the price.\n"
-    "- When a line shows two [R] prices (regular + sale/You Pay), use the charged amount — the one marked S, 'You Pay', or 'Sale', typically the lower value.\n"
-    "- Quantities / weights are center-aligned ([C]) or follow the item name in [L]\n"
-    "- [S] marks a store savings/discount row — its [R] or [C] value is a discount applied to the item "
-    "in the [L] row immediately above it. Subtract it to get the final charged price "
-    "(e.g. [R] 2.49 then [S][C] 0.50 → final price 1.99). Do NOT create a separate item for [S] rows. "
-    "[S] rows always have raw_amount = null.\n"
-    "- If no SPATIAL LAYOUT, use the markdown table rows\n\n"
-    "Then list raw extracted values:\n"
-    "- date: <raw date string>\n"
-    "- time: <raw time string>\n"
-    "- currency: <symbol or code found>\n"
-    "- For each item row: productName | itemCode | raw_price | raw_amount | category\n"
+    "<extract>\n"
+    "From SPATIAL LAYOUT if present ([L]=item name  [C]=center/qty  [R]=price  [S]=savings row):\n"
+    "- [S] rows = discounts on the item above; subtract from that item's price, do NOT extract as items\n"
+    "- Per product row: productName | itemCode | raw_price | raw_amount | category\n"
+    "- Also: date | time | currency\n"
+    "If no SPATIAL LAYOUT, use markdown table rows.\n"
     "</extract>\n\n"
     "<json>\n{final normalized JSON conforming to the schema below}\n</json>\n\n"
 )
@@ -1475,18 +1443,20 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
     _PRICE_LETTER   = re.compile(r"^(\d+\.?\d*)[A-Za-z]+$")  # "11.99A", "8.99N"
     _NON_PRODUCT    = re.compile(
         r"\b(tax|saving|savings|discount|instant\s+saving|subtotal|total|"
-        r"redemp|crv|deposit|donation|bag\s+fee|"
+        r"redemp|crv|deposit|donation|charity|bag\s+fee|bottle\s+dep|"
         # Payment terminal / card slip lines
         r"approved|customer\s+copy|card\s+number|retain\s+this|"
         r"ref\.?\s*#|auto\s*#|visa\s+credit|entry\s+id|datetime|"
         r"transaction\s+id|debit\s+card|credit\s+card|"
         # Promotional / footer text
         r"fuel\s+points|thank\s+you\s+for\s+shopping|earn\s+\d+|"
-        r"opportunity\s+awaits|join\s+our\s+team|feedback|"
+        r"opportunity\s+awaits|join\s+our\s+team|now\s+hiring|feedback|"
         r"closing\s+balance|points\s+redeemed|pc\s+optimum|"
         # Sale/discount modifier lines (not standalone products)
         r"member\s+saving|digital\s+coupon|coupon\s+saving|"
-        r"instant\s+saving|price\s+reduction)\b",
+        r"instant\s+saving|price\s+reduction|"
+        # Payment noise
+        r"balance\s+due|change\s+due|cash\s+back|gift\s+card)\b",
         re.IGNORECASE,
     )
     # Structural junk: URLs, EMV AIDs (A000...), "Item N" placeholders,
@@ -1497,13 +1467,20 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
         r"^\d{2,3}\s+[A-Z]{2,}|"                   # "00 APPROVED", "03 DECLINED"
         r"^item\s*\d*$|"                            # "Item", "Item 1", "Item 2"
         r"^\*{2,}|"                                 # "*** CUSTOMER COPY ***"
+        r"^\*\d+|"                                  # card number fragments: "*8424"
         r"^mgr:|^date:|^time:|"                     # manager/timestamp footer fields
+        r"^account\s*:|^card\s+type\s*:|"           # payment terminal fields
+        r"^trans(?:action)?\s*,?\s+type\s*:|"       # "Trans, Type: PURCHASE"
+        r"^rec#|"                                   # receipt reference numbers: "REC#2-5279"
         r"^\(sale\)\s*$|"                           # bare "(SALE)" line
         r"^\(?\d{3}\)?[\s\-]\d{3}[\s\-]\d{4}|"     # phone numbers (604) 688-0911
         r"^\d{2}/\d{2}/\d{2,4}\s+\d{1,2}:\d{2}|"  # timestamps 02/19/26 7:53:13 PM
         r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}|"       # ISO timestamps 2026-02-19 07:53
         r"^\d+[A-Za-z]{1,2}\s+\d+$|"               # OCR noise: "1mt 4", "3oz 2"
         r"^[A-Za-z]{1,2}mt\s+\d+$|"                # OCR noise: "Imt 6", "imt 4"
+        r"^SC\s+\d+|"                               # Ingles store codes: "SC 3547", "SC 3547 A"
+        r"^\$[\d,]+$|"                              # dollar-prefixed numbers: "$15,000,000"
+        r"@\s*\$?\d+\.?\d*\s*/|"                   # per-unit pricing lines: "NET 1b @ $1.49/1b", "1.160 kg @ $1.72/kg"
         r"^[a-z]{4,8}[0-9]?$)",                    # all-lowercase garbled OCR: "euoju", "emo2"
         re.IGNORECASE,
     )
@@ -1532,6 +1509,11 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
         # Drop names that are too short to be a real product (single chars, "SC", "R")
         # or are purely numeric (OCR noise like "0.41" ending up as a product name).
         if len(name) <= 2 or re.fullmatch(r"[\d\s\.\,\-]+", name):
+            continue
+
+        # Drop names that are implausibly long — legal notices, Prop-65 warnings,
+        # multi-sentence footer text extracted as a single item.
+        if len(name) > 100:
             continue
 
         # Drop store-metadata lines that models occasionally extract as items:
@@ -1618,14 +1600,24 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
     for item in fixed:
         name_raw  = _norm_for_dedup(item.get("productName") or "")
         price_raw = re.sub(r"[A-Za-z]+$", "", (item.get("price") or "").strip())
+        item_code = (item.get("itemCode") or "").strip()
         is_dup = False
         for kept in deduped:
             kept_name  = _norm_for_dedup(kept.get("productName") or "")
             kept_price = re.sub(r"[A-Za-z]+$", "", (kept.get("price") or "").strip())
+            kept_code  = (kept.get("itemCode") or "").strip()
             if kept_price != price_raw:
                 continue   # different price → definitely different items
+            # Different non-empty itemCodes → distinct purchases, never deduplicate
+            if item_code and kept_code and item_code != kept_code:
+                continue
             # Same price: check name similarity
             if name_raw == kept_name:
+                # Same name + same price but no itemCode to distinguish → only
+                # deduplicate if there is already a kept entry with a null/empty
+                # itemCode (chunk-merge artifact). If both have codes they were
+                # already handled above; if neither has a code we treat it as a
+                # duplicate to avoid double-counting LLM hallucinations.
                 is_dup = True
                 break
             if name_raw and kept_name:
@@ -1644,6 +1636,97 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
                         break
         if not is_dup:
             deduped.append(item)
+
+    return deduped
+
+
+# ---------------------------------------------------------------------------
+# Output flattening — denormalize receipt metadata into per-item records
+# ---------------------------------------------------------------------------
+
+_VALID_PRICE_RE = re.compile(r"^\d+\.\d{2}[A-Z]{3}$")
+_FLAT_NON_PRODUCT = re.compile(
+    r"\b(donation|charity|bag\s+fee|bottle\s+dep|deposit|recycling|crv|redemption|"
+    r"tax|subtotal|total|savings?|discount|coupon|reward|point|loyalty|"
+    r"balance\s+due|change\s+due|cash\s+back|gift\s+card)\b",
+    re.IGNORECASE,
+)
+
+
+def flatten_receipt(receipt: dict) -> list[dict]:
+    """
+    Convert a structured receipt dict into flat per-item records.
+
+    Each record contains only the 7 target output fields:
+      productName, purchaseDate, price, amount, storeName, latitude, longitude
+
+    Items are dropped if:
+      - productName or price is null/empty
+      - price does not match the X.XXCURRENCY format (e.g. "3.69USD")
+      - productName matches a non-product keyword pattern
+      - productName is entirely lowercase (garbled OCR — real receipt names are CAPS/Title)
+      - productName contains the store name (header line leaked in as a product)
+
+    After filtering, substring deduplication removes fragment names where a longer
+    name at the same price already exists (e.g. "GRD A LRG" when "GRD A LRG BRWN MRJ"
+    is also present at the same price).
+    """
+    store_name    = receipt.get("storeName") or None
+    purchase_date = receipt.get("purchaseDate") or None
+    lat           = receipt.get("latitude")
+    lon           = receipt.get("longitude")
+
+    # Normalised store name for containment check (e.g. "no frills", "kroger")
+    store_lower = (store_name or "").lower()
+
+    flat_items: list[dict] = []
+    for item in receipt.get("items", []):
+        name  = (item.get("productName") or "").strip()
+        price = (item.get("price") or "").strip()
+
+        if not name or not price:
+            continue
+        if not _VALID_PRICE_RE.match(price):
+            continue
+        if _FLAT_NON_PRODUCT.search(name):
+            continue
+
+        # General fix 1: all-lowercase name → garbled OCR noise.
+        # Real receipt product names are always CAPS or Title Case.
+        if name == name.lower() and any(c.isalpha() for c in name):
+            continue
+
+        # General fix 2: store name contained in product name → header leaked in.
+        if store_lower and store_lower in name.lower():
+            continue
+
+        flat_items.append({
+            "productName":  name,
+            "purchaseDate": purchase_date,
+            "price":        price,
+            "amount":       item.get("amount") or "1",
+            "storeName":    store_name,
+            "latitude":     lat,
+            "longitude":    lon,
+        })
+
+    # General fix 3: substring dedup at same price.
+    # If name A is a substring of name B and they share a price, drop A (keep the longer one).
+    price_groups: dict[str, list[dict]] = {}
+    for item in flat_items:
+        price_groups.setdefault(item["price"], []).append(item)
+
+    deduped: list[dict] = []
+    for items_at_price in price_groups.values():
+        names = [i["productName"].lower() for i in items_at_price]
+        keep = []
+        for i, item in enumerate(items_at_price):
+            n = names[i]
+            # Drop if any other name at this price fully contains this one (and is longer)
+            if any(n != names[j] and n in names[j] for j in range(len(names))):
+                continue
+            keep.append(item)
+        deduped.extend(keep)
 
     return deduped
 
@@ -2110,6 +2193,33 @@ def _correct_store_name_from_ocr(store_name: str, ocr_text: str) -> str:
     return store_name
 
 
+def _is_hallucinated(result: dict, ocr_text: str) -> bool:
+    """
+    Return True if the extracted result looks like a hallucination — i.e. the
+    LLM invented items that do not appear anywhere in the OCR text.
+
+    Strategy: take the first significant word (>3 chars) of each extracted
+    product name and check whether it appears in the OCR.  If NONE of the
+    first 5 items have any word found in the OCR, the model almost certainly
+    fabricated the receipt.
+    """
+    items = result.get("items") or []
+    if not items:
+        return False
+    ocr_lower = ocr_text.lower()
+    checked = 0
+    for item in items[:5]:
+        name = (item.get("productName") or "").strip().lower()
+        words = [w for w in re.split(r"\W+", name) if len(w) > 3]
+        if not words:
+            continue
+        checked += 1
+        if any(w in ocr_lower for w in words):
+            return False   # at least one item found → not hallucinated
+    # If we checked items and found none in the OCR → hallucination
+    return checked > 0
+
+
 def structure(ocr_text: str, display_name: str, user_name: str,
               model: str, run_id: str, provider: str | None = None) -> dict:
     """
@@ -2201,6 +2311,27 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         # Merge chunks (no-op when only one chunk)
         result = _merge_chunk_results(chunk_results)
 
+        # Hallucination guard: if none of the extracted item names appear in the
+        # OCR text, the model fabricated the receipt.  Retry once with the same
+        # model; if it hallucinates again, fall back to the other CLOD model.
+        if _is_hallucinated(result, ocr_text):
+            _FALLBACK_MODEL = "Qwen/Qwen2.5-7B-Instruct-Turbo"
+            retry_model = _FALLBACK_MODEL if model != _FALLBACK_MODEL else model
+            retry_chunks: list[dict] = []
+            for chunk_text in chunks:
+                try:
+                    c_result, pt, ct, api_cost, _, _ = _structure_clod(chunk_text, retry_model, _prompt)
+                    total_pt += pt; total_ct += ct
+                    if api_cost is not None:
+                        total_cost += api_cost
+                    else:
+                        total_cost += _estimate_clod_cost(retry_model, pt, ct) or 0.0
+                    retry_chunks.append(c_result)
+                except Exception:
+                    pass
+            if retry_chunks:
+                result = _merge_chunk_results(retry_chunks)
+
         # Deterministic post-processing: drop bad rows, fix column swaps
 
         # Tier 2c — normalise store name first so Canadian-store CAD inference works.
@@ -2244,6 +2375,7 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         # Inject caller-controlled fields
         result["imageName"] = display_name
         result["userName"]  = user_name
+        result["flatItems"] = flatten_receipt(result)
 
         # Geocode once using merged store address.
         # Fallback: if LLM returned no storeAddress, extract it from the OCR text
@@ -2376,13 +2508,13 @@ if _RT_AVAILABLE:
         """Single-node pipeline: OCR → LLM/geocode in one Railtracks step."""
         image_path = Path(ctx.image_path)
         await rt.broadcast(f"[OCR] Starting — {image_path.name} ({image_path.stat().st_size:,} bytes)")
-        ocr_text = await asyncio.to_thread(ocr, image_path, ctx.run_id, ctx.user_name)
+        ocr_text = await asyncio.to_thread(ocr, image_path, image_path.name, ctx.run_id, ctx.user_name)
         await rt.broadcast(
             f"[LLM] Starting — provider={ctx.provider}  model={ctx.model}  "
             f"input={len(ocr_text)} chars"
         )
         result, total_pt, total_ct, total_cost = await asyncio.to_thread(
-            structure, ocr_text, image_path, ctx.user_name,
+            structure, ocr_text, image_path.name, ctx.user_name,
             ctx.model, ctx.run_id, ctx.provider
         )
         items = len(result.get("items", []))
@@ -2515,25 +2647,6 @@ def _registry_save(image_stem: str, ids: list[str]) -> None:
                                 encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
-# Output formatter — flatten receipt → list of per-item dicts
-# ---------------------------------------------------------------------------
-def flatten_receipt(receipt: dict) -> list[dict]:
-    """
-    Convert a receipt dict into a list of flat per-item dicts with exactly 7 fields.
-    """
-    rows = []
-    for item in receipt.get("items", []):
-        rows.append({
-            "productName": item.get("productName"),
-            "purchaseDate": receipt.get("purchaseDate"),
-            "price":        item.get("price"),
-            "amount":       item.get("amount"),
-            "storeName":    receipt.get("storeName"),
-            "latitude":     receipt.get("latitude"),
-            "longitude":    receipt.get("longitude"),
-        })
-    return rows
 
 
 # ---------------------------------------------------------------------------
