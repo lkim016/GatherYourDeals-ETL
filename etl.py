@@ -258,11 +258,20 @@ _COSTCO_PROMPT_ADDENDUM = """\
 
 
 def _build_system_prompt(ocr_text: str, use_direct: bool = False) -> str:
-    """Return the system prompt, appending Costco rules only when the OCR mentions Costco."""
     base = _SYSTEM_PROMPT_DIRECT if use_direct else _SYSTEM_PROMPT
-    if "COSTCO" in ocr_text.upper()[:500]:
-        return base + _COSTCO_PROMPT_ADDENDUM
-    return base
+    ocr_upper = ocr_text.upper()[:1000] # Check a bit more than 500 chars
+    
+    addenda = []
+    
+    # Costco Specifics
+    if "COSTCO" in ocr_upper:
+        addenda.append(_COSTCO_PROMPT_ADDENDUM)
+    
+    # You can add more stores here later (e.g., Walmart, Amazon)
+    # elif "WALMART" in ocr_upper:
+    #     addenda.append(_WALMART_PROMPT_ADDENDUM)
+
+    return base + "\n".join(addenda)
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +463,12 @@ def _reconstruct_spatial_rows(result) -> str:
         """Return shear-corrected Y: removes the linear tilt across the page."""
         return y - tilt * x
 
+    # ── Calculate Effective Width ───────────────────────────────────────────
+    # Find the rightmost point where text actually exists.
+    # This prevents narrow receipts from being 'squished' in the calculation.
+    all_xs = word_xs.values()
+    effective_width = max(all_xs) if all_xs else page_width
+
     # ── Build line_data ──────────────────────────────────────────────────────
     # Row structure: page.lines — each ADI line is one visual row.
     # Column assignment: page.words X (word_xs).
@@ -494,10 +509,10 @@ def _reconstruct_spatial_rows(result) -> str:
 
         for token in text.strip().split():
             x   = word_xs.get(token, line_min_x)
-            pct = x / page_width
-            if pct < 0.52:
+            pct = x / effective_width
+            if pct < 0.48:
                 left_words.append((token, x))
-            elif pct < 0.70:
+            elif pct < 0.75:
                 center_words.append((token, x))
             else:
                 right_words.append((token, x))
@@ -518,10 +533,10 @@ def _reconstruct_spatial_rows(result) -> str:
     center_tokens: list[tuple[float, float, str]] = []
     right_tokens:  list[tuple[float, float, str]] = []
     for y, x, text in line_data:
-        pct = x / page_width
-        if pct < 0.52:
+        pct = x / effective_width
+        if pct < 0.48:
             left_tokens.append((y, x, text))
-        elif pct < 0.70:
+        elif pct < 0.75:
             center_tokens.append((y, x, text))
         else:
             right_tokens.append((y, x, text))

@@ -457,7 +457,7 @@ async def run_etl(
                     content={"success": not gdown_error, "message": msg, "results": []},
                 )
 
-        _BATCH_LIMIT = 14
+        _BATCH_LIMIT = 4
         if len(file_pairs) > _BATCH_LIMIT:
             return JSONResponse(
                 status_code=400,
