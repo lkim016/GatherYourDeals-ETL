@@ -52,6 +52,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from src import etl as _etl
+from src.core import config
 from src.etl_logger import log_pipeline
 
 from google.oauth2.credentials import Credentials
@@ -276,8 +277,8 @@ async def _process_one(
     Never raises — all exceptions are caught and returned as failure dicts.
     """
     run_id = str(uuid.uuid4())
-    provider = _etl.LLM_PROVIDER
-    model = _etl.CLOD_DEFAULT_MODEL if provider == "clod" else _etl.OR_DEFAULT_MODEL
+    provider = config.LLM_PROVIDER
+    model = config.CLOD_DEFAULT_MODEL if provider == "clod" else config.OR_DEFAULT_MODEL
 
     pipeline_start = time.monotonic()
     try:
