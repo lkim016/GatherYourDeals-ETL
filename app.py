@@ -457,34 +457,42 @@ async def run_etl(
                     content={"success": not gdown_error, "message": msg, "results": []},
                 )
 
-        _BATCH_LIMIT = 10
-        if len(file_pairs) > _BATCH_LIMIT:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "message": f"We only allow up to {_BATCH_LIMIT} pictures in a folder for scanning at once.",
-                },
-            )
-
-        _ADI_SEM = asyncio.Semaphore(14)  # ADI S0 cap is 15 — keep one slot free
+        # 1. Setup the tools first
+        _ADI_SEM = asyncio.Semaphore(14)
 
         async def _process_one_limited(entry):
+            if len(entry) == 3: # Handle download errors
+                return {"file": entry[1], "success": False, "message": entry[2]}
+                
             image_bytes, file_name = entry
             async with _ADI_SEM:
                 result = await _process_one(image_bytes, file_name, jwt_token, refresh_token)
+            
             status = "✓" if result["success"] else "✗"
             print(f"  {status}  {file_name} — {result['message']}")
             return {"file": file_name, **result}
 
-        results = list(await asyncio.gather(*[_process_one_limited(e) for e in file_pairs]))
+        # 2. Now run the chunked loop
+        results = []
+        batch_size = 4
+        
+        for i in range(0, len(file_pairs), batch_size):
+            chunk = file_pairs[i : i + batch_size]
+            print(f"\n[etl] Processing batch {i//batch_size + 1} ({len(chunk)} images)...")
+            
+            # This processes 4 at a time, then moves to the next 4
+            chunk_results = await asyncio.gather(
+                *[_process_one_limited(e) for e in chunk]
+            )
+            results.extend(chunk_results)
 
-        succeeded = sum(1 for r in results if r["success"])
+        # 3. Final summary
+        succeeded = sum(1 for r in results if r.get("success"))
         total = len(results)
         return JSONResponse(
             status_code=200,
             content={
-                "success": succeeded == total,
+                "success": succeeded == total and total > 0,
                 "message": f"{succeeded}/{total} succeeded",
                 "results": results,
             },
