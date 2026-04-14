@@ -72,28 +72,37 @@ If no SPATIAL LAYOUT, use markdown table rows.
 
 - Multiple candidates for a field → use most recent or most prominent
 - Low confidence → return null, never guess
-- Never fabricate values absent from the OCR text"""
+- Never fabricate values absent from the OCR text
+
+## Strict Filtering & Data Integrity
+- **Address Sanitization**: Never extract rows that consist of a street address, suite number, city, or zip code as a product. If a line matches the store's address block, ignore it entirely.
+- **Product vs. Header**: Line items almost always appear *after* the store header and *before* the Subtotal. If a piece of text is located in the top 20% of the receipt and looks like an address (e.g., contains "Main St", "Blvd", "Suite", or a 5-digit Zip), do not treat it as a product even if it has a price-like number nearby.
+- **Minimum Item Requirements**: An item is only valid if it has a descriptive name. If the name is just a number, a tax code (F/T/X), or a single word like "TAX" or "TOTAL", skip it.
+"""
+
 
 # Leaner prompt — no chain-of-thought scaffolding.
 # Used for simple (single-chunk, spatial-layout) receipts to cut output tokens
 # by ~70%.  Identical rules to _SYSTEM_PROMPT; only the <spans>/<extract>/<json>
 # thinking scaffold is removed.
-COT_SECTION = (
-    "\n## Extraction process\n\n"
-    "Work through three steps below, then output JSON. This reduces errors on messy receipts.\n\n"
-    "<spans>\n"
-    "Quote verbatim: HEADER (store, address, date/time), ITEMS (every product line row), TOTALS (subtotal, tax, total, payment).\n"
-    "</spans>\n\n"
-    "<extract>\n"
-    "From SPATIAL LAYOUT if present ([L]=item name  [C]=center/qty  [R]=price  [S]=savings row):\n"
-    "- [S] rows = discounts on the item above; subtract from that item's price, do NOT extract as items\n"
-    "- Per product row: productName | itemCode | raw_price | raw_amount | category\n"
-    "- Also: date | time | currency\n"
-    "If no SPATIAL LAYOUT, use markdown table rows.\n"
-    "</extract>\n\n"
-    "<json>\n{final normalized JSON conforming to the schema below}\n</json>\n\n"
-)
-SYSTEM_PROMPT_DIRECT = SYSTEM_PROMPT.replace(COT_SECTION, "")
+
+# COT_SECTION = (
+#     "\n## Extraction process\n\n"
+#     "Work through three steps below, then output JSON. This reduces errors on messy receipts.\n\n"
+#     "<spans>\n"
+#     "Quote verbatim: HEADER (store, address, date/time), ITEMS (every product line row), TOTALS (subtotal, tax, total, payment).\n"
+#     "</spans>\n\n"
+#     "<extract>\n"
+#     "From SPATIAL LAYOUT if present ([L]=item name  [C]=center/qty  [R]=price  [S]=savings row):\n"
+#     "- [S] rows = discounts on the item above; subtract from that item's price, do NOT extract as items\n"
+#     "- Per product row: productName | itemCode | raw_price | raw_amount | category\n"
+#     "- Also: date | time | currency\n"
+#     "If no SPATIAL LAYOUT, use markdown table rows.\n"
+#     "</extract>\n\n"
+#     "<json>\n{final normalized JSON conforming to the schema below}\n</json>\n\n"
+# )
+# SYSTEM_PROMPT_DIRECT = SYSTEM_PROMPT.replace(COT_SECTION, "")
+
 
 COSTCO_PROMPT_ADDENDUM = """\
 
