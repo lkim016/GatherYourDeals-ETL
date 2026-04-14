@@ -510,11 +510,20 @@ async def run_etl(
     if file_match:
         # GOOGLE DRIVE PATH
         file_id = file_match.group(1)
+        # Using the direct download link is more reliable than the /view link
+        clean_url = f"https://drive.google.com/uc?id={file_id}" 
         display_name = f"gdrive_{file_id[:6]}.jpg"
 
         # Try gdown first (handles "virus scan" warnings)
         try:
-            output_path = await asyncio.to_thread(gdown.download, source, quiet=True, use_cookies=False)
+            # Pass clean_url instead of just file_id for better compatibility
+            output_path = await asyncio.to_thread(
+                gdown.download, 
+                clean_url, 
+                quiet=True, 
+                use_cookies=False
+            )
+            
             if output_path and os.path.exists(output_path):
                 image_bytes = pathlib.Path(output_path).read_bytes()
                 os.remove(output_path) 
