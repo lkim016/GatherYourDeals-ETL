@@ -1,6 +1,5 @@
 import re
 
-
 # Identifies savings/discount lines in the spatial layout so they can be
 # labeled [S] and associated with the item above them.
 _SAVINGS_LINE = re.compile(

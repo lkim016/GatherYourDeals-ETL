@@ -75,7 +75,7 @@ from src.etl_logger import (  # noqa: E402
 )
 
 # OR, if you want to use them directly without the 'prompts.' prefix:
-from src.core import config, prompts
+from src.core import config, prompts, llm_config
 from src.services import ocr as ocr_srvc
 from src.services import llm, geo
 
@@ -289,7 +289,7 @@ def structure(ocr_text: str, display_name: str, user_name: str,
     #         LLM sees "BANANAS  2.00" rather than two unrelated lines.
     # Applied once here so every downstream tier — noise filter, chunker,
     # weight-price parser, and LLM prompt — all see clean, aligned text.
-    ocr_text = llm._NORM_SPACED_NUM.sub(r'\1.\2', ocr_text)
+    ocr_text = llm_config._NORM_SPACED_NUM.sub(r'\1.\2', ocr_text)
     ocr_text = llm._join_split_price_lines(ocr_text)
 
     # Tier 1 — strip noise lines before the text reaches the LLM.
@@ -517,11 +517,14 @@ if _RT_AVAILABLE:
         ocr_text: str
 
     class StructureOutput(OcrOutput):
-        store_name:    str
-        items_count:   int
-        receipt_json:  str   # json.dumps of the receipt dict
-        usage: dict          # {input_tokens, output_tokens, total_tokens} — read by Railtracks/AgentHub
-        cost:  dict          # {total_usd} — read by Railtracks/AgentHub
+        # Fields from ctx.model_dump() and ocr_text are likely in OcrOutput
+        # but these are the specific ones you just added/confirmed:
+        store_name: str
+        items_count: int      # Matches the length of your cleaned list
+        is_valid: bool        # The quality flag from validate_extraction
+        receipt_json: str     # The json.dumps of your scrubbed dict
+        usage: dict           # {input_tokens, output_tokens, total_tokens}
+        cost: dict            # {total_usd}
         
     
     @rt.function_node
@@ -529,18 +532,13 @@ if _RT_AVAILABLE:
         """Single-node pipeline: OCR → LLM/geocode in one Railtracks step."""
         image_path = Path(ctx.image_path)        
         
-        # Use the throttled OCR function instead of direct to_thread
+        # 1. OCR Step
         ocr_text = await throttled_ocr(image_path, image_path.name, ctx.run_id, ctx.user_name, True)
-        # 2. Explicitly check for None or empty string
         if ocr_text is None:
             print(f"❌ ERROR: throttled_ocr returned None for {image_path.name}")
-            # Handle the error or return early
             return 
             
-        print(f"DEBUG: OCR Result: {len(ocr_text)} chars found.")
-        # asyncio.to_thread(AzureOCRService, image_path, image_path.name, ctx.run_id, ctx.user_name)
-
-        # await rt.broadcast(f"[OCR] Starting — {image_path.name} ({image_path.stat().st_size:,} bytes)")
+        # 2. LLM Step
         await rt.broadcast(
             f"[LLM] Starting — provider={ctx.provider}  model={ctx.model}  "
             f"input={len(ocr_text)} chars"
@@ -550,30 +548,72 @@ if _RT_AVAILABLE:
             ctx.model, ctx.run_id, ctx.provider
         )
 
-        # FIX: Check if result is None before using it
+        # 3. Handle Failed Extraction
         if result is None:
             print(f"ERROR: LLM structuring failed for {image_path.name}")
-            # Return a dummy structure so the pipeline doesn't crash
             result = {"items": [], "storeName": "Unknown"}
-            total_pt = total_pt or 0
-            total_ct = total_ct or 0
-            total_cost = total_cost or 0.0
+            total_pt, total_ct, total_cost = 0, 0, 0.0
 
-        items = len(result.get("items", []))
-        store = result.get("storeName", "?")
+        # --- 4. NEW: VALIDATION & CLEANING GATE ---
+        # Extract store name for the heuristic check
+        raw_store = result.get("storeName", "Unknown")
+        raw_items = result.get("items", [])
+
+        # Call your consolidated function
+        clean_items, extraction_is_valid = validate_extraction(raw_items, raw_store)
+        
+        # Update result with the cleaned items for the final JSON dump
+        result["items"] = clean_items
+        # ------------------------------------------
+
+        items_count = len(clean_items)
         await rt.broadcast(
-            f"[LLM] Done — {items} items  store={store}  latency logged"
+            f"[LLM] Done — {items_count} valid items  store={raw_store}  valid={extraction_is_valid}"
         )
+
         return StructureOutput(
             **ctx.model_dump(),
             ocr_text=ocr_text,
-            store_name=store,
-            items_count=items,
-            receipt_json=json.dumps(result),
+            store_name=raw_store,
+            items_count=items_count,
+            # Save the cleaned JSON, not the raw LLM noise
+            receipt_json=json.dumps(result), 
+            # Pass the validation flag to your Pydantic model
+            is_valid=extraction_is_valid, 
             usage={"input_tokens": total_pt, "output_tokens": total_ct, "total_tokens": total_pt + total_ct},
             cost={"total_usd": round(total_cost, 8)},
         )
 
+
+
+def validate_extraction(raw_items: list[dict], store_name: str, currency: str = "USD") -> tuple[list[dict], bool]:
+    """
+    Cleans extracted items and determines if the overall result is high-quality.
+    Returns: (list of cleaned items, is_valid_boolean)
+    """
+    # 1. Run your thorough Rule 1-9 + Dedup scrubbing
+    fixed_items = llm._validate_and_fix_items(raw_items, currency)
+    
+    original_count = len(raw_items)
+    fixed_count = len(fixed_items)
+    is_valid = True
+
+    # --- HEURISTIC 1: Zero Yield ---
+    # LLM found things, but they were all junk/fees/noise.
+    if original_count > 0 and fixed_count == 0:
+        is_valid = False
+
+    # --- HEURISTIC 2: High Attrition ---
+    # If we dropped > 60% of items, the extraction is likely 'dirty' (e.g., footer text).
+    if original_count > 3 and (fixed_count / original_count) < 0.4:
+        is_valid = False
+
+    # --- HEURISTIC 3: Store Name Integrity ---
+    # If the store name itself looks like an address, the extraction failed.
+    if store_name and llm_config._ADDRESS_LEAK.search(store_name):
+        is_valid = False
+
+    return fixed_items, is_valid
 
 # ---------------------------------------------------------------------------
 # Extract — runs the pipeline (via Railtracks Flow if available)
@@ -596,6 +636,7 @@ def extract(image_data: "Path | bytes", display_name: str, user_name: str, model
     
         try:
             flow = rt.Flow(name="receipt_etl", entry_point=receipt_pipeline)
+            # 1. Invoke the pipeline (which now runs validation internally)
             result = flow.invoke(OcrInput(
                 image_path=image_to_process,
                 run_id=run_id,
@@ -603,15 +644,28 @@ def extract(image_data: "Path | bytes", display_name: str, user_name: str, model
                 model=model,
                 provider=resolved_provider,
             ))
-            return json.loads(result.receipt_json)
+            
+            # 2. Convert the cleaned JSON string back to a dict
+            data = json.loads(result.receipt_json)
+            
+            # 3. Attach the quality flag so the UI/Database knows if this was "junk"
+            data["is_valid"] = result.is_valid
+            data["items_count"] = result.items_count
+            
+            # 4. Optional: If it's invalid, you could log it specifically here
+            if not result.is_valid:
+                print(f"⚠️  Extraction quality low for {display_name} (flagged as noise).")
+            
+            return data
+
         except Exception as e:
             print(f"Railtracks failed: {e}, falling back to manual pipeline")
-            # Return a safe empty structure so result.get("items") doesn't crash
             return {
                 "items": [],
                 "storeName": "Error",
                 "total_usd": 0.0,
                 "success": False,
+                "is_valid": False, # Ensure the flag exists even on crash
                 "message": str(e)
             }
 

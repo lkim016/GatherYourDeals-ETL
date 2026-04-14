@@ -642,28 +642,6 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
     return deduped
 
 
-# def validate_and_return_with_flag(items: list[dict], currency: str = "USD"):
-#     original_count = len(items)
-#     fixed_items = _validate_and_fix_items(items, currency)
-    
-#     # --- Quality Heuristics ---
-#     is_valid = True
-    
-#     # 1. Zero Yield: If we had items but now have none, it was all noise.
-#     if original_count > 0 and len(fixed_items) == 0:
-#         is_valid = False
-        
-#     # 2. High Attrition: If we dropped > 60% of what the LLM found, 
-#     # the LLM was likely "guessing" or picking up addresses as products.
-#     if original_count > 3 and (len(fixed_items) / original_count) < 0.4:
-#         is_valid = False
-
-#     # 3. Store Name Check: If "store_name" looks like an address (use your regex here too)
-#     # This check happens outside this function in your pipeline.
-
-#     return fixed_items, is_valid
-
-
 # ---------------------------------------------------------------------------
 # Tier 3b — Targeted repair for items with null/missing price
 # ---------------------------------------------------------------------------

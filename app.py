@@ -560,7 +560,9 @@ async def run_etl(
     result = await _process_one(image_bytes, display_name, jwt_token, refresh_token)
 
     logger.info(f"ETL Result: {result}")
-    status_code = 200 if result["success"] else 422
+    # If it's technically successful but fails the quality gate, 
+    # you might want to change the status code.
+    status_code = 200 if (result["success"] and result.get("is_valid", True)) else 422
     return JSONResponse(status_code=status_code, content=result)
 
 
