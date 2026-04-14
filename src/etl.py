@@ -109,7 +109,8 @@ async def throttled_ocr(image_data, display_name, run_id, user_id, use_cache):
         def run_sync():
             # Create a temporary file to hold the downloaded bytes
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                tmp.write(image_data)
+                image_bytes = image_data.read_bytes()
+                tmp.write(image_bytes)
                 tmp_path = tmp.name
 
             try:
