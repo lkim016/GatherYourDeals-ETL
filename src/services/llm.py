@@ -138,7 +138,7 @@ def structure_llm(provider: str, ocr_text: str, model: str, system_prompt: str =
         except httpx.HTTPStatusError as e:
             # Check for Rate Limit (429) or Server Error (5xx)
             if (e.response.status_code == 429 or e.response.status_code >= 500) and attempt < max_retries - 1:
-                (wait = 2 ** attempt + 1 # Exponential backoff (1s, 2s, 4s)
+                wait = 2 ** attempt  # Exponential backoff (1s, 2s, 4s)
                 print(f"{provider} {e.response.status_code}. Retrying in {wait}s...")
                 time.sleep(wait)
                 continue
