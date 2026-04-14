@@ -595,24 +595,31 @@ if _RT_AVAILABLE:
         final_compliant_items = []
         for item in clean_items:
             name = item.get("productName")
+            
+            # 1. CLEAN PRICE: Force to string, remove non-numeric chars
             raw_price = str(item.get("price") or "0")
-            
-            # --- NEW: CLEAN THE PRICE STRING ---
-            # Remove "USD", "$", spaces, etc., so '6.50USD' becomes '6.50'
             clean_price_str = "".join(c for c in raw_price if c.isdigit() or c == '.')
-            
             try:
                 price = float(clean_price_str) if clean_price_str else 0.0
             except ValueError:
                 price = 0.0
             
-            # ONLY keep it if it has a real name and a price > 0
+            # 2. CLEAN AMOUNT: Handle strings like "1b" or "2pk"
+            raw_amount = str(item.get("amount") or "1")
+            # Extract only the leading digits (so "1b" becomes "1")
+            clean_amount_str = "".join(c for c in raw_amount if c.isdigit())
+            try:
+                amount = int(clean_amount_str) if clean_amount_str else 1
+            except ValueError:
+                amount = 1
+            
+            # 3. QUALITY GATE
             if name and name != "Unknown Item" and price > 0:
                 compliant_item = {
                     "productName": name,
                     "purchaseDate": item.get("purchaseDate") or raw_date,
                     "price": price,
-                    "amount": int(item.get("amount") or 1),
+                    "amount": amount,
                     "storeName": item.get("storeName") or raw_store,
                     "latitude": lat,
                     "longitude": lon
@@ -652,7 +659,15 @@ def validate_extraction(raw_items: list[dict], store_name: str, currency: str = 
     Cleans extracted items and determines if the overall result is high-quality.
     Returns: (list of cleaned items, is_valid_boolean)
     """
-    # 1. Run your thorough Rule 1-9 + Dedup scrubbing
+    # --- PRE-FLIGHT TYPE FIX ---
+    # Ensure every price/amount is a string so .strip() doesn't crash LLM internal logic
+    for item in raw_items:
+        if "price" in item:
+            item["price"] = str(item["price"] if item["price"] is not None else "0")
+        if "amount" in item:
+            item["amount"] = str(item["amount"] if item["amount"] is not None else "1")
+
+    # 1. Now it's safe to run your thorough Rule 1-9 + Dedup scrubbing
     fixed_items = llm._validate_and_fix_items(raw_items, currency)
     
     original_count = len(raw_items)
