@@ -525,7 +525,7 @@ async def run_etl(
             )
             
             if output_path and os.path.exists(output_path):
-                image_bytes = pathlib.Path(output_path).read_bytes()
+                image_bytes = Path(output_path).read_bytes()
                 os.remove(output_path) 
         except Exception as e:
             logger.warning(f"gdown failed for single file: {e}")
