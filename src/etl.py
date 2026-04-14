@@ -591,26 +591,35 @@ if _RT_AVAILABLE:
         # --- 4. VALIDATION & CLEANING ---
         clean_items, extraction_is_valid = validate_extraction(raw_items, raw_store)
 
-        # --- 5. FINAL RE-TAGGING (The "No-Fail" Loop) ---
-        # We loop through the CLEANED items to ensure they are 100% compliant
+        # --- 5. STRICT FILTERING (No 0s, No Unknowns) ---
+        final_compliant_items = []
         for item in clean_items:
-            # Re-apply global metadata to every single item
-            item["storeName"] = item.get("storeName") or raw_store
-            item["purchaseDate"] = item.get("purchaseDate") or raw_date
+            # Check for the "Big 3" to ensure quality
+            name = item.get("productName")
+            price = item.get("price")
             
-            # Ensure price/amount are numeric and present
-            if item.get("price") is None: item["price"] = 0.0
-            if item.get("amount") is None: item["amount"] = 1
-            
-            # Final geocode stamp
-            if lat and lon:
-                item["latitude"], item["longitude"] = lat, lon
+            # ONLY keep it if it has a real name and a price > 0
+            if name and name != "Unknown Item" and price and float(price) > 0:
+                compliant_item = {
+                    "productName": name,
+                    "purchaseDate": item.get("purchaseDate") or raw_date,
+                    "price": float(price),
+                    "amount": int(item.get("amount") or 1),
+                    "storeName": item.get("storeName") or raw_store,
+                    "latitude": lat,
+                    "longitude": lon
+                }
+                final_compliant_items.append(compliant_item)
 
-        # Update the result object with the now-bulletproof items
-        result["items"] = clean_items
-        result["latitude"], result["longitude"] = lat, lon # Root level update
+        # --- 6. CONDITIONAL SUCCESS ---
+        items_count = len(final_compliant_items)
+        
+        # If we have NO valid items, we treat this as a failure so it doesn't 
+        # count toward your "Succeeded" tally in the logs.
+        if items_count == 0:
+            raise ValueError(f"ETL Failed for {image_path.name}: No valid items extracted.")
 
-        items_count = len(clean_items)
+        result["items"] = final_compliant_items
         await rt.broadcast(
             f"[LLM] Done — {items_count} valid items  store={raw_store}  valid={extraction_is_valid}"
         )
