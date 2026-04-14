@@ -167,10 +167,10 @@ def _build_system_prompt(ocr_text: str, use_direct: bool = False) -> str:
 # ETL Pipeline Nodes
 # ---------------------------------------------------------------------------
 async def ocr_node(image_path, run_id, user_id):
-    ocr_service = ocr.AzureOCRService()
+    ocr_srvc = ocr.AzureOCRService()
     
     # This replaces the massive block of code previously in etl.py
-    ocr_text = await ocr_service.perform_ocr(
+    ocr_text = await ocr_srvc.perform_ocr(
         image_data=image_path,
         display_name=image_path.name,
         run_id=run_id,
@@ -575,25 +575,31 @@ def extract(image_data: "Path | bytes", display_name: str, user_name: str, model
             provider: str | None = None, use_cache: bool = True) -> dict:
     resolved_provider = (provider or config.LLM_PROVIDER).lower()
 
-    # Railtracks path requires a file on disk — only available when image_data is a Path.
-    if isinstance(image_data, bytes):
-        # Create a temp file so Railtracks has a physical path to work with
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-            tmp.write(image_data)
-            tmp_path = tmp.name
-        image_to_process = tmp_path
-    else:
-        image_to_process = str(image_data)
-
-    flow = rt.Flow(name="receipt_etl", entry_point=receipt_pipeline)
-    result = flow.invoke(OcrInput(
-        image_path=image_to_process,
-        run_id=run_id,
-        user_name=user_name,
-        model=model,
-        provider=resolved_provider,
-    ))
-    return json.loads(result.receipt_json)
+#    FIX: Check if rt is actually defined before using it
+    if _RT_AVAILABLE and 'rt' in globals():
+        # Railtracks path requires a file on disk — only available when image_data is a Path.
+        if isinstance(image_data, bytes):
+            # Create a temp file so Railtracks has a physical path to work with
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                tmp.write(image_data)
+                tmp_path = tmp.name
+            image_to_process = tmp_path
+        else:
+            image_to_process = str(image_data)
+    
+        try:
+            flow = rt.Flow(name="receipt_etl", entry_point=receipt_pipeline)
+            result = flow.invoke(OcrInput(
+                image_path=image_to_process,
+                run_id=run_id,
+                user_name=user_name,
+                model=model,
+                provider=resolved_provider,
+            ))
+            return json.loads(result.receipt_json)
+        except Exception as e:
+            print(f"Railtracks failed: {e}, falling back to manual pipeline")
+            # Fall through to manual logic if RT fails
 
     # if _RT_AVAILABLE and isinstance(image_data, Path):
     #     flow = rt.Flow(name="receipt_etl", entry_point=receipt_pipeline)

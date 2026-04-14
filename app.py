@@ -40,6 +40,7 @@ import time
 import re
 import urllib.parse
 import uuid
+import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -62,6 +63,7 @@ from googleapiclient.http import MediaIoBaseDownload
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
+logger = logging.getLogger("uvicorn.error")
 
 app = FastAPI(
     title="ETL Service API",
@@ -393,9 +395,13 @@ async def run_etl(
         )
 
     # --- Detect Google Drive folder ----------------------------------------
+    # Inside your function:
+    logger.info(f"Checking source: {source}")
     folder_match = _GDRIVE_FOLDER_RE.search(source)
+    logger.info(f"Folder Match Result: {folder_match}")
     if folder_match:
         folder_id = folder_match.group(1)
+        print(f"DEBUG: Extracted Folder ID: {folder_id}")
 
         # Mock batch: simulate one pipeline per image slot (use 4 as stand-in)
         if mock:
@@ -510,6 +516,8 @@ async def run_etl(
         return JSONResponse(status_code=400, content={"success": False, "message": str(exc)})
 
     result = await _process_one(image_bytes, display_name, jwt_token, refresh_token)
+    # Inside your function:
+    logger.info(f"Checking source: {result}")
     status_code = 200 if result["success"] else 422
     return JSONResponse(status_code=status_code, content=result)
 

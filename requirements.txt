@@ -12,6 +12,8 @@ pillow-heif>=0.14.0
 # Optional — only needed for --report charts
 matplotlib>=3.8.0
 
+railtracks>=0.1.0  # Or the specific version you are using
+
 # GatherYourDeals SDK (not on PyPI — install separately):
 #   pip install git+https://github.com/yuewang199511/GatherYourDeals-SDK.git
 
