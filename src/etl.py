@@ -67,6 +67,7 @@ import sys
 import time
 import uuid
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from src.reporting import eval_receipts, baseline_report  # noqa: E402 (after load_dotenv)
@@ -563,7 +564,12 @@ if _RT_AVAILABLE:
 
         # 3. Handle Failed Extraction
         if result is None:
-            result = {"items": [], "storeName": "Unknown"}
+            # Use today's date or a placeholder so the DB upload doesn't reject it
+            result = {
+                "items": [], 
+                "storeName": "Unknown", 
+                "purchaseDate": datetime.now().strftime("%Y-%m-%d") 
+            }
             total_pt, total_ct, total_cost = 0, 0, 0.0
 
         # --- PRE-PROCESS STRINGS (Move this up!) ---
