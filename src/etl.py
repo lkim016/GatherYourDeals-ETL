@@ -101,6 +101,8 @@ ocr_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_OCR)
 # Start with 2 or 3 to be safe for your current API tier
 _LLM_SEMAPHORE = asyncio.Semaphore(2)
 
+# Keep geocoding tight - most APIs hate more than 1 or 2 at the exact same time
+_GEO_SEMAPHORE = asyncio.Semaphore(1)
 
 async def throttled_ocr(image_bytes: bytes, display_name: str, run_id: str, user_id: str, use_cache: bool):
     """
@@ -431,10 +433,10 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         if not address or len(address) < 12:
             address = llm._extract_address_from_ocr(ocr_text, result.get("storeName") or "")
             result["storeAddress"] = address
-
+            
         # 2. Get the coordinates from your updated geo.py
-        short_name = (result.get("storeName") or "").split(" ")[0]
-        lat, lon = geo.geocode(address, store_name=short_name)
+        # short_name = (result.get("storeName") or "").split(" ")[0]
+        # lat, lon = geo.geocode(address, store_name=short_name)
 
         # 3. Update the nested items list with coordinates and filter junk
         if "items" in result:
@@ -559,6 +561,19 @@ if _RT_AVAILABLE:
             print(f"ERROR: LLM structuring failed for {image_path.name}")
             result = {"items": [], "storeName": "Unknown"}
             total_pt, total_ct, total_cost = 0, 0, 0.0
+
+        # --- GEOCODING STAGE ---
+        store_address = result.get("storeAddress") # or storeName
+        # 2. Get the coordinates from your updated geo.py
+        short_name = (result.get("storeName") or "").split(" ")[0]
+        lat, lng = None, None
+        # lat, lon = geo.geocode(address, store_name=short_name)
+        
+        if store_address:
+            async with _GEO_SEMAPHORE:
+                # We use to_thread because geocoding is usually a synchronous HTTP call
+                await rt.broadcast(f"[GEO] Looking up address: {store_address}")
+                lat, lng = await asyncio.to_thread(geo.geocode, store_address, short_name)
 
         # --- 4. NEW: VALIDATION & CLEANING GATE ---
         # Extract store name for the heuristic check

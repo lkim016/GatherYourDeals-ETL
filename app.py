@@ -447,7 +447,7 @@ async def run_etl(
                 )
 
         # 1. Setup the tools first
-        _ADI_SEM = asyncio.Semaphore(14)
+        _ADI_SEM = asyncio.Semaphore(5)
 
         async def _process_one_limited(entry):
             if len(entry) == 3: # Handle download errors
@@ -461,19 +461,9 @@ async def run_etl(
             print(f"  {status}  {file_name} — {result['message']}")
             return {"file": file_name, **result}
 
-        # 2. Now run the chunked loop
-        results = []
-        batch_size = 4
-        
-        for i in range(0, len(file_pairs), batch_size):
-            chunk = file_pairs[i : i + batch_size]
-            print(f"\n[etl] Processing batch {i//batch_size + 1} ({len(chunk)} images)...")
-            
-            # This processes 4 at a time, then moves to the next 4
-            chunk_results = await asyncio.gather(
-                *[_process_one_limited(e) for e in chunk]
-            )
-            results.extend(chunk_results)
+        # 2. SCHEDULING: Execute all tasks concurrently - let the Semaphore throttle them to 14 at a time
+        tasks = [_process_one_limited(entry) for entry in file_pairs]
+        results = await asyncio.gather(*tasks)
 
         # 3. Final summary
         succeeded = sum(1 for r in results if r.get("success"))
