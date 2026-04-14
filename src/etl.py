@@ -594,16 +594,24 @@ if _RT_AVAILABLE:
         # --- 5. STRICT FILTERING (No 0s, No Unknowns) ---
         final_compliant_items = []
         for item in clean_items:
-            # Check for the "Big 3" to ensure quality
             name = item.get("productName")
-            price = item.get("price")
+            raw_price = str(item.get("price") or "0")
+            
+            # --- NEW: CLEAN THE PRICE STRING ---
+            # Remove "USD", "$", spaces, etc., so '6.50USD' becomes '6.50'
+            clean_price_str = "".join(c for c in raw_price if c.isdigit() or c == '.')
+            
+            try:
+                price = float(clean_price_str) if clean_price_str else 0.0
+            except ValueError:
+                price = 0.0
             
             # ONLY keep it if it has a real name and a price > 0
-            if name and name != "Unknown Item" and price and float(price) > 0:
+            if name and name != "Unknown Item" and price > 0:
                 compliant_item = {
                     "productName": name,
                     "purchaseDate": item.get("purchaseDate") or raw_date,
-                    "price": float(price),
+                    "price": price,
                     "amount": int(item.get("amount") or 1),
                     "storeName": item.get("storeName") or raw_store,
                     "latitude": lat,
