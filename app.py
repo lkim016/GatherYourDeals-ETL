@@ -55,6 +55,7 @@ from src import etl as _etl
 from src.core import config
 from src.etl_logger import log_pipeline
 
+import gdown
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from googleapiclient.discovery import build

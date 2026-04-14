@@ -67,8 +67,6 @@ import sys
 import time
 import uuid
 import tempfile
-import os
-from datetime import datetime, timezone
 from pathlib import Path
 
 from src.reporting import eval_receipts, baseline_report  # noqa: E402 (after load_dotenv)
