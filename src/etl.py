@@ -473,8 +473,6 @@ def structure(ocr_text: str, display_name: str, user_name: str,
                      print(f"  [LLM]  Warning: Found barcode instead of name: {name}")
 
                 # Attach the data
-                item["latitude"] = lat
-                item["longitude"] = lon
                 item["purchaseDate"] = result.get("purchaseDate")
                 item["storeName"] = result.get("storeName")
                 
@@ -483,14 +481,6 @@ def structure(ocr_text: str, display_name: str, user_name: str,
             # Replace with the cleaned version
             result["items"] = valid_items
                 
-            # Final Status Print (outside the loop)
-            if lat and lon:
-                print(f"  [GEO]  Successfully tagged {len(result['items'])} items with coordinates.")
-            else:
-                print(f"  [GEO]  Warning: Geocoding failed. Coordinates will be null.")
-
-        result["latitude"]  = lat
-        result["longitude"] = lon
 
         log_llm(run_id, display_name, user_name, resolved_provider, model,
                 total_pt, total_ct, total_cost, latency_ms,
@@ -566,15 +556,27 @@ if _RT_AVAILABLE:
         store_address = result.get("storeAddress") # or storeName
         # 2. Get the coordinates from your updated geo.py
         short_name = (result.get("storeName") or "").split(" ")[0]
-        lat, lng = None, None
+        lat, lon = None, None
         # lat, lon = geo.geocode(address, store_name=short_name)
         
         if store_address:
             async with _GEO_SEMAPHORE:
                 # We use to_thread because geocoding is usually a synchronous HTTP call
                 await rt.broadcast(f"[GEO] Looking up address: {store_address}")
-                lat, lng = await asyncio.to_thread(geo.geocode, store_address, short_name)
+                lat, lon = await asyncio.to_thread(geo.geocode, store_address, short_name)
 
+        # Final Status Print (outside the loop)
+        if lat and lon:
+            # Update the result root for overall receipt location
+            result["latitude"] = lat
+            result["longitude"] = lon
+            
+            # Update individual items
+            for item in result.get("items", []):
+                item["latitude"] = lat
+                item["longitude"] = lon
+            print(f"  [GEO]  Successfully tagged {len(result['items'])} items.")
+            
         # --- 4. NEW: VALIDATION & CLEANING GATE ---
         # Extract store name for the heuristic check
         raw_store = result.get("storeName", "Unknown")

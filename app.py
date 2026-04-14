@@ -384,7 +384,7 @@ async def run_etl(
     # Inside your function:
     logger.info(f"Checking source: {source}")
     folder_match = _GDRIVE_FOLDER_RE.search(source)
-    logger.info(f"Folder Match Result: {folder_match}")
+    # logger.info(f"Folder Match Result: {folder_match}")
     
     if folder_match:
         folder_id = folder_match.group(1)
