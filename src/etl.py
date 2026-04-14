@@ -92,23 +92,38 @@ image_list = [f for f in folder.glob("*") if f.suffix.lower() in config.IMAGE_EX
 
 
 # --- Concurrency Control ---
-_MAX_CONCURRENT_OCR = 5
-# Note: Ensure ocr_semaphore is defined inside your async loop or 
-# at the module level if using a global loop.
-ocr_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_OCR)
+_OCR_SEMAPHORE = None
+
+def get_ocr_sem():
+    global _OCR_SEMAPHORE
+    if _OCR_SEMAPHORE is None:
+        _OCR_SEMAPHORE = asyncio.Semaphore(14)
+    return _OCR_SEMAPHORE
 
 # Define the global limit for LLM concurrency
 # Start with 2 or 3 to be safe for your current API tier
-_LLM_SEMAPHORE = asyncio.Semaphore(2)
+_LLM_SEMAPHORE = None
+
+def get_llm_sem():
+    global _LLM_SEMAPHORE
+    if _LLM_SEMAPHORE is None:
+        _LLM_SEMAPHORE = asyncio.Semaphore(6)
+    return _LLM_SEMAPHORE
 
 # Keep geocoding tight - most APIs hate more than 1 or 2 at the exact same time
-_GEO_SEMAPHORE = asyncio.Semaphore(1)
+_GEO_SEMAPHORE = None
+
+def get_geo_sem():
+    global _GEO_SEMAPHORE
+    if _GEO_SEMAPHORE is None:
+        _GEO_SEMAPHORE = asyncio.Semaphore(1)
+    return _GEO_SEMAPHORE
 
 async def throttled_ocr(image_bytes: bytes, display_name: str, run_id: str, user_id: str, use_cache: bool):
     """
     Directly passes bytes to the service. No disk I/O needed.
-    """
-    async with ocr_semaphore:
+    """    
+    async with get_ocr_sem():
         def run_sync():
             # Pass the bytes directly to the service
             # Your service handles the internal conversion/ADI call
@@ -536,7 +551,7 @@ if _RT_AVAILABLE:
             return 
             
         # 2. LLM Step
-        async with _LLM_SEMAPHORE: # <--- The "Bouncer" gate
+        async with get_llm_sem(): # <--- The "Bouncer" gate
             await rt.broadcast(
                 f"[LLM] Starting — provider={ctx.provider}  model={ctx.model}; Waiting for slot/Executing — {image_path.name}"
                 f"input={len(ocr_text)} chars"
@@ -548,46 +563,41 @@ if _RT_AVAILABLE:
 
         # 3. Handle Failed Extraction
         if result is None:
-            print(f"ERROR: LLM structuring failed for {image_path.name}")
             result = {"items": [], "storeName": "Unknown"}
             total_pt, total_ct, total_cost = 0, 0, 0.0
 
-        # --- GEOCODING STAGE ---
-        store_address = result.get("storeAddress") # or storeName
-        # 2. Get the coordinates from your updated geo.py
-        short_name = (result.get("storeName") or "").split(" ")[0]
-        lat, lon = None, None
-        # lat, lon = geo.geocode(address, store_name=short_name)
-        
-        if store_address:
-            async with _GEO_SEMAPHORE:
-                # We use to_thread because geocoding is usually a synchronous HTTP call
-                await rt.broadcast(f"[GEO] Looking up address: {store_address}")
-                lat, lon = await asyncio.to_thread(geo.geocode, store_address, short_name)
-
-        # Final Status Print (outside the loop)
-        if lat and lon:
-            # Update the result root for overall receipt location
-            result["latitude"] = lat
-            result["longitude"] = lon
-            
-            # Update individual items
-            for item in result.get("items", []):
-                item["latitude"] = lat
-                item["longitude"] = lon
-            print(f"  [GEO]  Successfully tagged {len(result['items'])} items.")
-            
-        # --- 4. NEW: VALIDATION & CLEANING GATE ---
-        # Ensure raw_store is a string and NEVER None
-        raw_store = str(result.get("storeName") or "Unknown") 
+        # --- PRE-PROCESS STRINGS (Move this up!) ---
+        raw_store = str(result.get("storeName") or "Unknown")
+        raw_date = result.get("purchaseDate")
         raw_items = result.get("items") or []
 
-        # Call your consolidated function
-        clean_items, extraction_is_valid = validate_extraction(raw_items, raw_store)
+        # --- GEOCODING STAGE ---
+        store_address = result.get("storeAddress")
+        short_name = (result.get("storeName") or "").split(" ")[0]
+        lat, lon = None, None
         
-        # Update result with the cleaned items for the final JSON dump
+        if store_address:
+            # Use the lazy getter to avoid "different event loop" error
+            async with get_geo_sem(): 
+                lat, lon = await asyncio.to_thread(geo.geocode, store_address, short_name)
+
+        # 4. DATA TAGGING (Now raw_store and raw_date are available)
+        for item in raw_items:
+            # Add coordinates if we have them
+            if lat and lon:
+                item["latitude"], item["longitude"] = lat, lon
+            
+            # CRITICAL: Fill missing fields so the Upload doesn't fail
+            if not item.get("storeName"): item["storeName"] = raw_store
+            if not item.get("purchaseDate"): item["purchaseDate"] = raw_date
+
+        if lat and lon:
+            print(f"  [GEO]  Successfully tagged {len(raw_items)} items.")
+            
+        # --- 5. VALIDATION & CLEANING ---
+        clean_items, extraction_is_valid = validate_extraction(raw_items, raw_store)
         result["items"] = clean_items
-        # ------------------------------------------
+        result["latitude"], result["longitude"] = lat, lon # Root level update
 
         items_count = len(clean_items)
         await rt.broadcast(
