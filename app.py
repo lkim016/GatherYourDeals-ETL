@@ -514,7 +514,7 @@ async def run_etl(
 
         # Try gdown first (handles "virus scan" warnings)
         try:
-            output_path = await asyncio.to_thread(gdown.download, source, quiet=True, fuzzy=True)
+            output_path = await asyncio.to_thread(gdown.download, source, quiet=True, use_cookies=False)
             if output_path and os.path.exists(output_path):
                 image_bytes = pathlib.Path(output_path).read_bytes()
                 os.remove(output_path) 

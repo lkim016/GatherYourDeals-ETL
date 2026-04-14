@@ -522,8 +522,7 @@ if _RT_AVAILABLE:
         receipt_json:  str   # json.dumps of the receipt dict
         usage: dict          # {input_tokens, output_tokens, total_tokens} — read by Railtracks/AgentHub
         cost:  dict          # {total_usd} — read by Railtracks/AgentHub
-
-    cache = False
+        
     
     @rt.function_node
     async def receipt_pipeline(ctx: OcrInput) -> StructureOutput:
@@ -531,7 +530,7 @@ if _RT_AVAILABLE:
         image_path = Path(ctx.image_path)        
         
         # Use the throttled OCR function instead of direct to_thread
-        ocr_text = await throttled_ocr(image_path, image_path.name, ctx.run_id, ctx.user_name, cache)
+        ocr_text = await throttled_ocr(image_path, image_path.name, ctx.run_id, ctx.user_name, True)
         # 2. Explicitly check for None or empty string
         if ocr_text is None:
             print(f"❌ ERROR: throttled_ocr returned None for {image_path.name}")
