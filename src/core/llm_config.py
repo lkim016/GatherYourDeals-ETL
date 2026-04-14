@@ -7,7 +7,7 @@ import re
 PRICE_RE       = re.compile(r"(\d+\.?\d*)")
 UNIT_STRIP     = re.compile(r"\b(W|EA|PK|F|N|X|O|T|PC|CT|BG|LT|BT|CN|OZ|MRJ|RQ|FV|IQF|WLD|each)\b", re.IGNORECASE)
 PRICE_FMT      = re.compile(r"^\d+\.\d{2}\s*[A-Za-z]?$")  # "4.79", "4.79S", "4.79 S"
-# _ITEM_CODE      = re.compile(r"^\d{4,}\s+")            # leading 4+ digit item/barcode code
+ITEM_CODE      = re.compile(r"^\d{4,}\s+")            # leading 4+ digit item/barcode code
 PRICE_LETTER   = re.compile(r"^(\d+\.?\d*)[A-Za-z]+$")  # "11.99A", "8.99N"
 NON_PRODUCT    = re.compile(
     r"\b(tax|saving|savings|discount|instant\s+saving|subtotal|total|"
