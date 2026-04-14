@@ -124,45 +124,26 @@ def _resolve_source(source: str) -> tuple[bytes, str]:
     Raises ValueError / FileNotFoundError on bad input.
     """
     if source.startswith(("http://", "https://")):
-        # Convert Google Drive viewer/sharing URLs to direct download URLs.
-        # Handles: https://drive.google.com/file/d/<id>/view[?...]
-        #          https://drive.google.com/file/d/<id>
-        _gdrive_match = re.search(r"drive\.google\.com/file/d/([^/?#]+)", source)
-        if _gdrive_match:
-            source = f"https://drive.google.com/uc?export=download&id={_gdrive_match.group(1)}"
-
         parsed = urllib.parse.urlparse(source)
         url_filename = Path(parsed.path).name or "receipt.jpg"
-        ext = Path(url_filename).suffix.lower()
-        if ext not in _ALLOWED_EXTS:
-            ext = ".jpg"
-            url_filename = Path(url_filename).stem + ext
-
-        if "drive.google.com" in source:
-            display_name = f"gdrive_{uuid.uuid4().hex[:6]}.jpg"
-        else:
-            display_name = url_filename
+        
+        # Keep your existing extension/display_name logic here for non-GDrive URLs...
+        display_name = url_filename 
         
         try:
             import httpx
             with httpx.Client(follow_redirects=True, timeout=60) as client:
                 resp = client.get(source)
                 resp.raise_for_status()
-            print(f"  [download] {display_name} — {len(resp.content):,} bytes, content-type: {resp.headers.get('content-type', 'unknown')}")
-            return resp.content, display_name
+                return resp.content, display_name
         except Exception as exc:
-            raise ValueError(f"Failed to download source: {exc}") from exc
-
-    # Local path — read into memory
+            raise ValueError(f"Failed to download: {exc}")
+    
+    # Handle local file paths
     p = Path(source)
-    if not p.exists():
-        raise FileNotFoundError(f"Source path does not exist: {source}")
-    if p.suffix.lower() not in _ALLOWED_EXTS:
-        raise ValueError(
-            f"Unsupported file type '{p.suffix}'.  "
-            f"Accepted: {', '.join(sorted(_ALLOWED_EXTS))}"
-        )
-    return p.read_bytes(), p.name
+    if p.exists():
+        return p.read_bytes(), p.name
+    raise FileNotFoundError(f"Source not found: {source}")
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +384,7 @@ async def run_etl(
     logger.info(f"Checking source: {source}")
     folder_match = _GDRIVE_FOLDER_RE.search(source)
     logger.info(f"Folder Match Result: {folder_match}")
+    
     if folder_match:
         folder_id = folder_match.group(1)
         print(f"DEBUG: Extracted Folder ID: {folder_id}")
@@ -514,14 +496,60 @@ async def run_etl(
             content={"success": True, "message": "mock ETL completed"},
         )
 
-    try:
-        image_bytes, display_name = await asyncio.to_thread(_resolve_source, source)
-    except (ValueError, FileNotFoundError) as exc:
-        return JSONResponse(status_code=400, content={"success": False, "message": str(exc)})
+    
+    # 1. Prepare configuration
+    oauth_configured = bool(_GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET and _GOOGLE_REFRESH_TOKEN)
+    _GDRIVE_FILE_RE = re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)")
+    file_match = _GDRIVE_FILE_RE.search(source)
 
+    image_bytes = None
+    display_name = None
+
+    # 2. Logic Branching: Google Drive vs. Everything Else
+    if file_match:
+        # GOOGLE DRIVE PATH
+        file_id = file_match.group(1)
+        display_name = f"gdrive_{file_id[:6]}.jpg"
+
+        # Try gdown first (handles "virus scan" warnings)
+        try:
+            output_path = await asyncio.to_thread(gdown.download, source, quiet=True, fuzzy=True)
+            if output_path and os.path.exists(output_path):
+                image_bytes = pathlib.Path(output_path).read_bytes()
+                os.remove(output_path) 
+        except Exception as e:
+            logger.warning(f"gdown failed for single file: {e}")
+
+        # Fallback to OAuth if gdown failed
+        if not image_bytes and oauth_configured:
+            try:
+                service = await asyncio.to_thread(_build_drive_service)
+                image_bytes = await asyncio.to_thread(_download_drive_file, service, file_id, display_name)
+            except Exception as e:
+                logger.error(f"OAuth fallback failed: {e}")
+    else:
+        # STANDARD PATH (URLs, S3, or Local Files)
+        try:
+            # Let _resolve_source handle standard HTTP/local logic
+            image_bytes, display_name = await asyncio.to_thread(_resolve_source, source)
+            
+            # Ensure we have bytes if it returned a Path object
+            if hasattr(image_bytes, "read_bytes"):
+                image_bytes = image_bytes.read_bytes()
+        except (ValueError, FileNotFoundError) as exc:
+            return JSONResponse(status_code=400, content={"success": False, "message": str(exc)})
+
+    # 3. Final Validation & Handoff
+    if not image_bytes:
+         return JSONResponse(
+             status_code=400, 
+             content={"success": False, "message": "Failed to retrieve image data from source."}
+         )
+
+    # Process guaranteed binary data
     result = await _process_one(image_bytes, display_name, jwt_token, refresh_token)
-    # Inside your function:
-    logger.info(f"Checking source: {result}")
+
+    logger.info(f"ETL Result: {result}")
     status_code = 200 if result["success"] else 422
     return JSONResponse(status_code=status_code, content=result)
 

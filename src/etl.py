@@ -99,36 +99,23 @@ _MAX_CONCURRENT_OCR = 5
 # at the module level if using a global loop.
 ocr_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_OCR)
 
-async def throttled_ocr(image_data, display_name, run_id, user_id, use_cache):
+async def throttled_ocr(image_bytes: bytes, display_name: str, run_id: str, user_id: str, use_cache: bool):
     """
-    Limits concurrent calls to Azure to avoid 429 (Too Many Requests) 
-    and manage system resources.
+    Directly passes bytes to the service. No disk I/O needed.
     """
     async with ocr_semaphore:
-        # Define a small wrapper to handle the class lifecycle
         def run_sync():
-            # Create a temporary file to hold the downloaded bytes
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                image_bytes = image_data.read_bytes()
-                tmp.write(image_bytes)
-                tmp_path = tmp.name
+            # Pass the bytes directly to the service
+            # Your service handles the internal conversion/ADI call
+            return ocr_srvc.AzureOCRService(
+                image_bytes, 
+                display_name, 
+                run_id, 
+                user_id=user_id, 
+                use_cache=use_cache
+            )
 
-            try:
-                # 1. Instantiate the service with the temporary path
-                service = ocr_srvc.AzureOCRService(
-                    tmp_path, # Use the path, not the raw bytes
-                    display_name, 
-                    run_id, 
-                    user_id=user_id, 
-                    use_cache=use_cache
-                )
-                # 2. Process
-                return service.process()
-            finally:
-                # 3. Clean up the temp file after processing is done
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path) 
-
+        # Still use to_thread because the SDK call inside the service is synchronous
         return await asyncio.to_thread(run_sync)
 
 # ---------------------------------------------------------------------------
