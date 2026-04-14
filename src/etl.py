@@ -445,7 +445,7 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         # Fallback: if LLM returned no storeAddress, extract it from the OCR text
         # by looking for a line that contains digits + street keywords near the top.
         # 1. Resolve the address (use fallback if LLM missed it)
-        address = result.get("storeAddress", "").strip()
+        address = (result.get("storeAddress") or "").strip()
         if not address or len(address) < 12:
             address = llm._extract_address_from_ocr(ocr_text, result.get("storeName") or "")
             result["storeAddress"] = address
@@ -589,16 +589,23 @@ if _RT_AVAILABLE:
 
         # --- 4. DATA TAGGING & BACKFILL ---
         for item in raw_items:
-            # 1. Force the fields if they are missing or None
+            # 1. Fill REQUIRED string fields
+            # The API rejects if these are missing or empty strings
             item["storeName"] = item.get("storeName") or raw_store
             item["purchaseDate"] = item.get("purchaseDate") or raw_date
             
-            # 2. Ensure price and amount exist (even if 0) to satisfy the API
-            if "price" not in item or item["price"] is None:
+            # If the item doesn't have a name, give it a placeholder
+            if not item.get("productName"):
+                item["productName"] = "Unknown Item"
+            
+            # 2. Fill REQUIRED numeric fields
+            # The API rejects if price/amount are null/None
+            if item.get("price") is None:
                 item["price"] = 0.0
-            if "amount" not in item or item["amount"] is None:
+            if item.get("amount") is None:
                 item["amount"] = 1
                 
+            # 3. Add coordinates
             if lat and lon:
                 item["latitude"], item["longitude"] = lat, lon
             
