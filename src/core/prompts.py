@@ -86,22 +86,22 @@ If no SPATIAL LAYOUT, use markdown table rows.
 # by ~70%.  Identical rules to _SYSTEM_PROMPT; only the <spans>/<extract>/<json>
 # thinking scaffold is removed.
 
-# COT_SECTION = (
-#     "\n## Extraction process\n\n"
-#     "Work through three steps below, then output JSON. This reduces errors on messy receipts.\n\n"
-#     "<spans>\n"
-#     "Quote verbatim: HEADER (store, address, date/time), ITEMS (every product line row), TOTALS (subtotal, tax, total, payment).\n"
-#     "</spans>\n\n"
-#     "<extract>\n"
-#     "From SPATIAL LAYOUT if present ([L]=item name  [C]=center/qty  [R]=price  [S]=savings row):\n"
-#     "- [S] rows = discounts on the item above; subtract from that item's price, do NOT extract as items\n"
-#     "- Per product row: productName | itemCode | raw_price | raw_amount | category\n"
-#     "- Also: date | time | currency\n"
-#     "If no SPATIAL LAYOUT, use markdown table rows.\n"
-#     "</extract>\n\n"
-#     "<json>\n{final normalized JSON conforming to the schema below}\n</json>\n\n"
-# )
-# SYSTEM_PROMPT_DIRECT = SYSTEM_PROMPT.replace(COT_SECTION, "")
+COT_SECTION = (
+    "\n## Extraction process\n\n"
+    "Work through three steps below, then output JSON. This reduces errors on messy receipts.\n\n"
+    "<spans>\n"
+    "Quote verbatim: HEADER (store, address, date/time), ITEMS (every product line row), TOTALS (subtotal, tax, total, payment).\n"
+    "</spans>\n\n"
+    "<extract>\n"
+    "From SPATIAL LAYOUT if present ([L]=item name  [C]=center/qty  [R]=price  [S]=savings row):\n"
+    "- [S] rows = discounts on the item above; subtract from that item's price, do NOT extract as items\n"
+    "- Per product row: productName | itemCode | raw_price | raw_amount | category\n"
+    "- Also: date | time | currency\n"
+    "If no SPATIAL LAYOUT, use markdown table rows.\n"
+    "</extract>\n\n"
+    "<json>\n{final normalized JSON conforming to the schema below}\n</json>\n\n"
+)
+SYSTEM_PROMPT_DIRECT = SYSTEM_PROMPT.replace(COT_SECTION, "")
 
 
 COSTCO_PROMPT_ADDENDUM = """\

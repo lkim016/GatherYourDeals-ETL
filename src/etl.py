@@ -581,18 +581,20 @@ if _RT_AVAILABLE:
             async with get_geo_sem(): 
                 lat, lon = await asyncio.to_thread(geo.geocode, store_address, short_name)
 
-        # 4. DATA TAGGING (Now raw_store and raw_date are available)
+        # --- 4. DATA TAGGING & BACKFILL ---
         for item in raw_items:
-            # Add coordinates if we have them
+            # 1. Force the fields if they are missing or None
+            item["storeName"] = item.get("storeName") or raw_store
+            item["purchaseDate"] = item.get("purchaseDate") or raw_date
+            
+            # 2. Ensure price and amount exist (even if 0) to satisfy the API
+            if "price" not in item or item["price"] is None:
+                item["price"] = 0.0
+            if "amount" not in item or item["amount"] is None:
+                item["amount"] = 1
+                
             if lat and lon:
                 item["latitude"], item["longitude"] = lat, lon
-            
-            # CRITICAL: Fill missing fields so the Upload doesn't fail
-            if not item.get("storeName"): item["storeName"] = raw_store
-            if not item.get("purchaseDate"): item["purchaseDate"] = raw_date
-
-        if lat and lon:
-            print(f"  [GEO]  Successfully tagged {len(raw_items)} items.")
             
         # --- 5. VALIDATION & CLEANING ---
         clean_items, extraction_is_valid = validate_extraction(raw_items, raw_store)
