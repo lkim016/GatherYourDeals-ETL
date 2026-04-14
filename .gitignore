@@ -46,6 +46,7 @@ scripts/
 logs/
 experiments/
 debug/
+tests/
 
 # Local docs
 docs/
