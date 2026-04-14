@@ -587,30 +587,26 @@ if _RT_AVAILABLE:
             async with get_geo_sem(): 
                 lat, lon = await asyncio.to_thread(geo.geocode, store_address, short_name)
 
-        # --- 4. DATA TAGGING & BACKFILL ---
-        for item in raw_items:
-            # 1. Fill REQUIRED string fields
-            # The API rejects if these are missing or empty strings
+            
+        # --- 4. VALIDATION & CLEANING ---
+        clean_items, extraction_is_valid = validate_extraction(raw_items, raw_store)
+
+        # --- 5. FINAL RE-TAGGING (The "No-Fail" Loop) ---
+        # We loop through the CLEANED items to ensure they are 100% compliant
+        for item in clean_items:
+            # Re-apply global metadata to every single item
             item["storeName"] = item.get("storeName") or raw_store
             item["purchaseDate"] = item.get("purchaseDate") or raw_date
             
-            # If the item doesn't have a name, give it a placeholder
-            if not item.get("productName"):
-                item["productName"] = "Unknown Item"
+            # Ensure price/amount are numeric and present
+            if item.get("price") is None: item["price"] = 0.0
+            if item.get("amount") is None: item["amount"] = 1
             
-            # 2. Fill REQUIRED numeric fields
-            # The API rejects if price/amount are null/None
-            if item.get("price") is None:
-                item["price"] = 0.0
-            if item.get("amount") is None:
-                item["amount"] = 1
-                
-            # 3. Add coordinates
+            # Final geocode stamp
             if lat and lon:
                 item["latitude"], item["longitude"] = lat, lon
-            
-        # --- 5. VALIDATION & CLEANING ---
-        clean_items, extraction_is_valid = validate_extraction(raw_items, raw_store)
+
+        # Update the result object with the now-bulletproof items
         result["items"] = clean_items
         result["latitude"], result["longitude"] = lat, lon # Root level update
 
