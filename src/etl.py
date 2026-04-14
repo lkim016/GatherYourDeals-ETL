@@ -67,6 +67,7 @@ import sys
 import time
 import uuid
 import tempfile
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -106,17 +107,26 @@ async def throttled_ocr(image_data, display_name, run_id, user_id, use_cache):
     async with ocr_semaphore:
         # Define a small wrapper to handle the class lifecycle
         def run_sync():
-            # 1. Instantiate the service
-            service = ocr_srvc.AzureOCRService(
-                image_data, 
-                display_name, 
-                run_id, 
-                user_id=user_id, 
-                use_cache=use_cache
-            )
-            # 2. Call the method that actually returns the string/text
-            # Replace '.process()' with whatever your main method is called (e.g., .run() or .get_text())
-            return service.process() 
+            # Create a temporary file to hold the downloaded bytes
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                tmp.write(image_data)
+                tmp_path = tmp.name
+
+            try:
+                # 1. Instantiate the service with the temporary path
+                service = ocr_srvc.AzureOCRService(
+                    tmp_path, # Use the path, not the raw bytes
+                    display_name, 
+                    run_id, 
+                    user_id=user_id, 
+                    use_cache=use_cache
+                )
+                # 2. Process
+                return service.process()
+            finally:
+                # 3. Clean up the temp file after processing is done
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path) 
 
         return await asyncio.to_thread(run_sync)
 

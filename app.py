@@ -138,7 +138,12 @@ def _resolve_source(source: str) -> tuple[bytes, str]:
             ext = ".jpg"
             url_filename = Path(url_filename).stem + ext
 
-        display_name = url_filename
+        # Inside _resolve_source
+        if "drive.google.com" in source:
+            display_name = f"gdrive_{uuid.uuid4().hex[:6]}.jpg"
+        else:
+            display_name = url_filename
+        
         try:
             import httpx
             with httpx.Client(follow_redirects=True, timeout=60) as client:
