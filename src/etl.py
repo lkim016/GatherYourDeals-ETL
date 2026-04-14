@@ -578,9 +578,9 @@ if _RT_AVAILABLE:
             print(f"  [GEO]  Successfully tagged {len(result['items'])} items.")
             
         # --- 4. NEW: VALIDATION & CLEANING GATE ---
-        # Extract store name for the heuristic check
-        raw_store = result.get("storeName", "Unknown")
-        raw_items = result.get("items", [])
+        # Ensure raw_store is a string and NEVER None
+        raw_store = str(result.get("storeName") or "Unknown") 
+        raw_items = result.get("items") or []
 
         # Call your consolidated function
         clean_items, extraction_is_valid = validate_extraction(raw_items, raw_store)
