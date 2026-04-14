@@ -35,9 +35,9 @@ CLOD_API_URL        = os.getenv("CLOD_API_URL",        "https://api.clod.io/v1/c
 AZURE_MAPS_URL      = os.getenv("AZURE_MAPS_URL",      "https://atlas.microsoft.com/search/fuzzy/json")
 
 # Operational constants
-# _ADI_TIMEOUT_S  = int(os.getenv("AZURE_DI_TIMEOUT",  "120"))
-# _CLOD_TIMEOUT_S = int(os.getenv("CLOD_TIMEOUT",       "120"))
-# _CLOD_RETRIES   = int(os.getenv("CLOD_RETRIES",       "3"))
+_ADI_TIMEOUT_S  = int(os.getenv("AZURE_DI_TIMEOUT",  "120"))
+_CLOD_TIMEOUT_S = int(os.getenv("CLOD_TIMEOUT",       "120"))
+_CLOD_RETRIES   = int(os.getenv("CLOD_RETRIES",       "3"))
 
 # --- Server / Upload ---
 GYD_SERVER_URL   = os.getenv("GYD_SERVER_URL", "http://localhost:8080/api/v1")

@@ -713,21 +713,21 @@ def upload(receipt: dict, run_id: str, token: str | None = None, refresh_token: 
 # Upload registry — maps image stem → list of GYD receipt UUIDs
 # ---------------------------------------------------------------------------
 
-# def _registry_load() -> dict:
-#     if config._UPLOAD_REGISTRY.exists():
-#         try:
-#             return json.loads(config._UPLOAD_REGISTRY.read_text(encoding="utf-8"))
-#         except Exception:
-#             return {}
-#     return {}
+def _registry_load() -> dict:
+    if config._UPLOAD_REGISTRY.exists():
+        try:
+            return json.loads(config._UPLOAD_REGISTRY.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
 
 
-# def _registry_save(image_stem: str, ids: list[str]) -> None:
-#     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-#     registry = _registry_load()
-#     registry[image_stem] = ids
-#     config._UPLOAD_REGISTRY.write_text(json.dumps(registry, indent=2, ensure_ascii=False),
-#                                 encoding="utf-8")
+def _registry_save(image_stem: str, ids: list[str]) -> None:
+    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    registry = _registry_load()
+    registry[image_stem] = ids
+    config._UPLOAD_REGISTRY.write_text(json.dumps(registry, indent=2, ensure_ascii=False),
+                                encoding="utf-8")
 
 
 

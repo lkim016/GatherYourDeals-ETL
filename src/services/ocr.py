@@ -1,10 +1,9 @@
 # src/core/ocr.py
 import time
-import re
 import statistics
 from pathlib import Path
 
-from src.core import config
+from src.core import config, ocr_config
 from src.utils import image_proc
 # Also import these from etl_logger for the log_adi call
 from src.etl_logger import log_adi, ADI_COST_PER_PAGE
@@ -12,39 +11,9 @@ from src.etl_logger import log_adi, ADI_COST_PER_PAGE
 
 # Identifies savings/discount lines in the spatial layout so they can be
 # labeled [S] and associated with the item above them.
-_SAVINGS_LINE = re.compile(
-    r"\b(savings?|you\s*saved|instant\s*savings?|member\s*savings?|"
-    r"everyday\s*savings?|digital\s*coupon|coupon\s*savings?|discount)\b",
-    re.IGNORECASE,
-)
 
 # Spatial-layout noise filter — same as _NOISE_LINE but intentionally keeps
 # savings/discount lines so the LLM can compute the final discounted price.
-_SPATIAL_NOISE_LINE = re.compile(
-    r"^\s*(?:"
-    r"sub\s*total|subtotal|total|net\s*total|grand\s*total|"
-    r"hst|gst|pst|qst|vat|tax|surcharge|"
-    r"payment|cash|credit|debit|visa|mastercard|interac|amex|"
-    r"us\s+debit|us\s+credit|"                          # "US DEBIT Purchase" etc.
-    r"change\s*due|change\b|balance\s*due|balance\b|"   # bare CHANGE / BALANCE lines
-    r"amount\s*due|amount\s*tendered|"
-    r"purchase\s*:|purchase\b|"                         # "PURCHASE: 9.06"
-    r"verified|pin\s*verified|"                         # "VERIFIED BY PIN"
-    r"aid\s*:|tc\s*:|ref\s*#|trans\s*#|auth\s*#|approval|"  # transaction codes
-    r"thank\s*you|please\s*come|visit\s*us|survey|"
-    r"tell\s*us|earn\b|fuel\s*point|fuel\b|"            # loyalty program footer
-    r"remaining\b.*point|total\b.*point|"               # "Remaining May Fuel Points"
-    r"annual\s*card|you\s*saved|with\s*our|"            # savings summary footer
-    r"go\s*to\s*www|www\.|feedback|hiring|"             # URLs / HR footer
-    r"receipt\s*#|store\s*#|"
-    r"approved|declined|customer\s*copy|merchant\s*copy|"
-    r"crv|ca\s*redemp|deposit|bottle\s*dep|bag\s*fee|"
-    r"your\s+cashier|cashier|operator|terminal|"        # "Your cashier was Jamie" etc.
-    r"\*{4,}|={3,}|-{3,}|#{3,}"                        # symbol-only lines (\b removed — \W next to \W has no boundary)
-    r")(?:\b|$|\s)",                                    # word boundary OR end OR whitespace
-    re.IGNORECASE,
-)
-
 
 def _reconstruct_spatial_rows(result) -> str:
     """
@@ -121,7 +90,7 @@ def _reconstruct_spatial_rows(result) -> str:
             continue
         # Skip noise lines (totals, loyalty text, transaction codes) — they
         # often have different perspective distortion than the item section.
-        if _SPATIAL_NOISE_LINE.match(ltext.strip()):
+        if ocr_config._SPATIAL_NOISE_LINE.match(ltext.strip()):
             continue
         # Skip lines containing any token that appears more than once on the
         # page — word_ys for such tokens reflects their last position, not this
@@ -183,7 +152,7 @@ def _reconstruct_spatial_rows(result) -> str:
         text = getattr(line, "content", None)
         if not poly or not text or not text.strip():
             continue
-        if _SPATIAL_NOISE_LINE.match(text.strip()):
+        if ocr_config._SPATIAL_NOISE_LINE.match(text.strip()):
             continue
         if hasattr(poly[0], "x"):
             ys        = [p.y for p in poly]
@@ -364,7 +333,7 @@ def _reconstruct_spatial_rows(result) -> str:
     output_lines: list[str] = []
     for i, group in enumerate(left_groups):
         group_text = " ".join(t[2] for t in group)
-        col_label  = "S" if _SAVINGS_LINE.search(group_text) else "L"
+        col_label  = "S" if ocr_config._SAVINGS_LINE.search(group_text) else "L"
 
         if len(group) > 1 and col_label == "L":
             # Multiple [L] items landed in the same Y-band (adjacent lines printed
@@ -497,20 +466,7 @@ def AzureOCRService(image_data: "Path | bytes", display_name: str, run_id: str, 
         raise
 
 
-
-_CURRENCY_MARKERS = [
-    (re.compile(r'\bCAD\b|\bCAD\$|C\$|\$CAD', re.IGNORECASE), "CAD"),
-    (re.compile(r'\bGBP\b|£',                                  re.IGNORECASE), "GBP"),
-    (re.compile(r'\bEUR\b|€',                                  re.IGNORECASE), "EUR"),
-]
-
-
-_US_STORE_OCR_RE = re.compile(
-    r'\b(KROGER|INGLES|INGLE\'?S|WALMART|WAL-MART|TARGET|VONS|RALPHS|SAFEWAY'
-    r'|ALBERTSONS|PUBLIX|H-?E-?B|WHOLE\s+FOODS|TRADER\s+JOE\'?S'
-    r'|FARM\s*&\s*TABLE|CVS|WALGREENS|RITE\s+AID)\b',
-    re.IGNORECASE,
-)
+# currency
 
 def _detect_currency_from_ocr(ocr_text: str) -> str | None:
     """
@@ -523,9 +479,9 @@ def _detect_currency_from_ocr(ocr_text: str) -> str | None:
     Returns None when no signal is found (caller falls back to store-name
     inference, then the LLM's own currency guess, then 'USD').
     """
-    for pattern, code in _CURRENCY_MARKERS:
+    for pattern, code in ocr_config._SPATIAL_NOISE_LINE:
         if pattern.search(ocr_text):
             return code
-    if _US_STORE_OCR_RE.search(ocr_text):
+    if ocr_config._US_STORE_OCR_RE.search(ocr_text):
         return "USD"
     return None
