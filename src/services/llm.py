@@ -1,6 +1,7 @@
 import re
 import json
 import httpx
+import time
 from typing import Dict, Any, Optional, List, Tuple, TypedDict
 from dataclasses import dataclass
 from openai import OpenAI
@@ -116,14 +117,32 @@ def structure_llm(provider: str, ocr_text: str, model: str, system_prompt: str =
         {"role": "user", "content": f"Receipt OCR text:\n\n{ocr_text}"},
     ]
 
-    if provider == "openrouter":
-        resp = _call_openrouter(messages, model)
-        norm = _normalize_openai(resp)
-    elif provider == "clod":
-        resp = _call_clod(messages, model)
-        norm = _normalize_clod(resp)
-    else:
-        raise ValueError(f"Unknown provider: {provider}")
+    # --- RETRY WRAPPER START ---
+    max_retries = 3
+    resp = None
+    norm = None
+
+    for attempt in range(max_retries):
+        try:
+            if provider == "openrouter":
+                resp = _call_openrouter(messages, model)
+                norm = _normalize_openai(resp)
+            elif provider == "clod":
+                resp = _call_clod(messages, model)
+                norm = _normalize_clod(resp)
+            else:
+                raise ValueError(f"Unknown provider: {provider}")
+            # If we reached here without an exception, break the retry loop
+            break
+
+        except httpx.HTTPStatusError as e:
+            # Check for Rate Limit (429) or Server Error (5xx)
+            if (e.response.status_code == 429 or e.response.status_code >= 500) and attempt < max_retries - 1:
+                (wait = 2 ** attempt + 1 # Exponential backoff (1s, 2s, 4s)
+                print(f"{provider} {e.response.status_code}. Retrying in {wait}s...")
+                time.sleep(wait)
+                continue
+            raise e # Permanent failure (401, 404, etc)
 
     # 1. Protect against a completely failed normalizer
     if norm is None or norm.get("raw") is None:

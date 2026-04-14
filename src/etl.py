@@ -97,6 +97,11 @@ _MAX_CONCURRENT_OCR = 5
 # at the module level if using a global loop.
 ocr_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_OCR)
 
+# Define the global limit for LLM concurrency
+# Start with 2 or 3 to be safe for your current API tier
+_LLM_SEMAPHORE = asyncio.Semaphore(2)
+
+
 async def throttled_ocr(image_bytes: bytes, display_name: str, run_id: str, user_id: str, use_cache: bool):
     """
     Directly passes bytes to the service. No disk I/O needed.
@@ -535,18 +540,19 @@ if _RT_AVAILABLE:
         # 1. OCR Step
         ocr_text = await throttled_ocr(image_path, image_path.name, ctx.run_id, ctx.user_name, True)
         if ocr_text is None:
-            print(f"❌ ERROR: throttled_ocr returned None for {image_path.name}")
+            print(f"ERROR: throttled_ocr returned None for {image_path.name}")
             return 
             
         # 2. LLM Step
-        await rt.broadcast(
-            f"[LLM] Starting — provider={ctx.provider}  model={ctx.model}  "
-            f"input={len(ocr_text)} chars"
-        )
-        result, total_pt, total_ct, total_cost = await asyncio.to_thread(
-            structure, ocr_text, image_path.name, ctx.user_name,
-            ctx.model, ctx.run_id, ctx.provider
-        )
+        async with _LLM_SEMAPHORE: # <--- The "Bouncer" gate
+            await rt.broadcast(
+                f"[LLM] Starting — provider={ctx.provider}  model={ctx.model}; Waiting for slot/Executing — {image_path.name}"
+                f"input={len(ocr_text)} chars"
+            )
+            result, total_pt, total_ct, total_cost = await asyncio.to_thread(
+                structure, ocr_text, image_path.name, ctx.user_name,
+                ctx.model, ctx.run_id, ctx.provider
+            )
 
         # 3. Handle Failed Extraction
         if result is None:
