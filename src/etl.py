@@ -77,7 +77,8 @@ from src.etl_logger import (  # noqa: E402
 
 # OR, if you want to use them directly without the 'prompts.' prefix:
 from src.core import config, prompts
-from src.services import llm, ocr, geo
+from src.services import ocr as ocr_srvc
+from src.services import llm, geo
 
 # Then reference it like this:
 if not config.AZURE_DI_KEY:
@@ -106,7 +107,7 @@ async def throttled_ocr(image_data, display_name, run_id, user_id, use_cache):
         # Define a small wrapper to handle the class lifecycle
         def run_sync():
             # 1. Instantiate the service
-            service = ocr.AzureOCRService(
+            service = ocr_srvc.AzureOCRService(
                 image_data, 
                 display_name, 
                 run_id, 
@@ -167,10 +168,10 @@ def _build_system_prompt(ocr_text: str, use_direct: bool = False) -> str:
 # ETL Pipeline Nodes
 # ---------------------------------------------------------------------------
 async def ocr_node(image_path, run_id, user_id):
-    ocr_srvc = ocr.AzureOCRService()
+    ocr_service = ocr_srvc.AzureOCRService()
     
     # This replaces the massive block of code previously in etl.py
-    ocr_text = await ocr_srvc.perform_ocr(
+    ocr_text = await ocr_service.perform_ocr(
         image_data=image_path,
         display_name=image_path.name,
         run_id=run_id,
@@ -390,7 +391,7 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         # Override LLM-extracted currency with deterministic OCR scan so
         # small models that default to "USD" are corrected for CA/GB/EU receipts.
         # Fall back to Canadian-store inference when OCR has no explicit marker.
-        ocr_currency = ocr._detect_currency_from_ocr(ocr_text)
+        ocr_currency = ocr_srvc._detect_currency_from_ocr(ocr_text)
         if ocr_currency is None:
             ocr_currency = llm._infer_currency_from_store(result.get("storeName") or "")
         currency = ocr_currency or result.get("currency") or "USD"
@@ -526,14 +527,15 @@ if _RT_AVAILABLE:
         usage: dict          # {input_tokens, output_tokens, total_tokens} — read by Railtracks/AgentHub
         cost:  dict          # {total_usd} — read by Railtracks/AgentHub
 
-
+    cache = False
+    
     @rt.function_node
     async def receipt_pipeline(ctx: OcrInput) -> StructureOutput:
         """Single-node pipeline: OCR → LLM/geocode in one Railtracks step."""
         image_path = Path(ctx.image_path)        
         
         # Use the throttled OCR function instead of direct to_thread
-        ocr_text = await throttled_ocr(image_path, image_path.name, ctx.run_id, ctx.user_name, True)
+        ocr_text = await throttled_ocr(image_path, image_path.name, ctx.run_id, ctx.user_name, cache)
         # 2. Explicitly check for None or empty string
         if ocr_text is None:
             print(f"❌ ERROR: throttled_ocr returned None for {image_path.name}")
@@ -552,6 +554,16 @@ if _RT_AVAILABLE:
             structure, ocr_text, image_path.name, ctx.user_name,
             ctx.model, ctx.run_id, ctx.provider
         )
+
+        # FIX: Check if result is None before using it
+        if result is None:
+            print(f"ERROR: LLM structuring failed for {image_path.name}")
+            # Return a dummy structure so the pipeline doesn't crash
+            result = {"items": [], "storeName": "Unknown"}
+            total_pt = total_pt or 0
+            total_ct = total_ct or 0
+            total_cost = total_cost or 0.0
+
         items = len(result.get("items", []))
         store = result.get("storeName", "?")
         await rt.broadcast(
@@ -599,7 +611,14 @@ def extract(image_data: "Path | bytes", display_name: str, user_name: str, model
             return json.loads(result.receipt_json)
         except Exception as e:
             print(f"Railtracks failed: {e}, falling back to manual pipeline")
-            # Fall through to manual logic if RT fails
+            # Return a safe empty structure so result.get("items") doesn't crash
+            return {
+                "items": [],
+                "storeName": "Error",
+                "total_usd": 0.0,
+                "success": False,
+                "message": str(e)
+            }
 
     # if _RT_AVAILABLE and isinstance(image_data, Path):
     #     flow = rt.Flow(name="receipt_etl", entry_point=receipt_pipeline)
