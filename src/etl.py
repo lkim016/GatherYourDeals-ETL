@@ -289,7 +289,7 @@ def structure(ocr_text: str, display_name: str, user_name: str,
     #         LLM sees "BANANAS  2.00" rather than two unrelated lines.
     # Applied once here so every downstream tier — noise filter, chunker,
     # weight-price parser, and LLM prompt — all see clean, aligned text.
-    ocr_text = llm_config._NORM_SPACED_NUM.sub(r'\1.\2', ocr_text)
+    ocr_text = llm_config.NORM_SPACED_NUM.sub(r'\1.\2', ocr_text)
     ocr_text = llm._join_split_price_lines(ocr_text)
 
     # Tier 1 — strip noise lines before the text reaches the LLM.
@@ -610,7 +610,7 @@ def validate_extraction(raw_items: list[dict], store_name: str, currency: str = 
 
     # --- HEURISTIC 3: Store Name Integrity ---
     # If the store name itself looks like an address, the extraction failed.
-    if store_name and llm_config._ADDRESS_LEAK.search(store_name):
+    if store_name and llm_config.ADDRESS_LEAK.search(store_name):
         is_valid = False
 
     return fixed_items, is_valid
@@ -768,9 +768,9 @@ def upload(receipt: dict, run_id: str, token: str | None = None, refresh_token: 
 # ---------------------------------------------------------------------------
 
 def _registry_load() -> dict:
-    if config._UPLOAD_REGISTRY.exists():
+    if config.UPLOAD_REGISTRY.exists():
         try:
-            return json.loads(config._UPLOAD_REGISTRY.read_text(encoding="utf-8"))
+            return json.loads(config.UPLOAD_REGISTRY.read_text(encoding="utf-8"))
         except Exception:
             return {}
     return {}
@@ -780,7 +780,7 @@ def _registry_save(image_stem: str, ids: list[str]) -> None:
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     registry = _registry_load()
     registry[image_stem] = ids
-    config._UPLOAD_REGISTRY.write_text(json.dumps(registry, indent=2, ensure_ascii=False),
+    config.UPLOAD_REGISTRY.write_text(json.dumps(registry, indent=2, ensure_ascii=False),
                                 encoding="utf-8")
 
 

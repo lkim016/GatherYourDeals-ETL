@@ -2,7 +2,7 @@ import re
 
 # Identifies savings/discount lines in the spatial layout so they can be
 # labeled [S] and associated with the item above them.
-_SAVINGS_LINE = re.compile(
+SAVINGS_LINE = re.compile(
     r"\b(savings?|you\s*saved|instant\s*savings?|member\s*savings?|"
     r"everyday\s*savings?|digital\s*coupon|coupon\s*savings?|discount)\b",
     re.IGNORECASE,
@@ -11,7 +11,7 @@ _SAVINGS_LINE = re.compile(
 
 # Spatial-layout noise filter — same as _NOISE_LINE but intentionally keeps
 # savings/discount lines so the LLM can compute the final discounted price.
-_SPATIAL_NOISE_LINE = re.compile(
+SPATIAL_NOISE_LINE = re.compile(
     r"^\s*(?:"
     r"sub\s*total|subtotal|total|net\s*total|grand\s*total|"
     r"hst|gst|pst|qst|vat|tax|surcharge|"
@@ -37,14 +37,14 @@ _SPATIAL_NOISE_LINE = re.compile(
 )
 
 # currency
-_CURRENCY_MARKERS = [
+CURRENCY_MARKERS = [
     (re.compile(r'\bCAD\b|\bCAD\$|C\$|\$CAD', re.IGNORECASE), "CAD"),
     (re.compile(r'\bGBP\b|£',                                  re.IGNORECASE), "GBP"),
     (re.compile(r'\bEUR\b|€',                                  re.IGNORECASE), "EUR"),
 ]
 
 
-_US_STORE_OCR_RE = re.compile(
+US_STORE_OCR_RE = re.compile(
     r'\b(KROGER|INGLES|INGLE\'?S|WALMART|WAL-MART|TARGET|VONS|RALPHS|SAFEWAY'
     r'|ALBERTSONS|PUBLIX|H-?E-?B|WHOLE\s+FOODS|TRADER\s+JOE\'?S'
     r'|FARM\s*&\s*TABLE|CVS|WALGREENS|RITE\s+AID)\b',

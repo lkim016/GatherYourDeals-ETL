@@ -90,7 +90,7 @@ def _reconstruct_spatial_rows(result) -> str:
             continue
         # Skip noise lines (totals, loyalty text, transaction codes) — they
         # often have different perspective distortion than the item section.
-        if ocr_config._SPATIAL_NOISE_LINE.match(ltext.strip()):
+        if ocr_config.SPATIAL_NOISE_LINE.match(ltext.strip()):
             continue
         # Skip lines containing any token that appears more than once on the
         # page — word_ys for such tokens reflects their last position, not this
@@ -152,7 +152,7 @@ def _reconstruct_spatial_rows(result) -> str:
         text = getattr(line, "content", None)
         if not poly or not text or not text.strip():
             continue
-        if ocr_config._SPATIAL_NOISE_LINE.match(text.strip()):
+        if ocr_config.SPATIAL_NOISE_LINE.match(text.strip()):
             continue
         if hasattr(poly[0], "x"):
             ys        = [p.y for p in poly]
@@ -333,7 +333,7 @@ def _reconstruct_spatial_rows(result) -> str:
     output_lines: list[str] = []
     for i, group in enumerate(left_groups):
         group_text = " ".join(t[2] for t in group)
-        col_label  = "S" if ocr_config._SAVINGS_LINE.search(group_text) else "L"
+        col_label  = "S" if ocr_config.SAVINGS_LINE.search(group_text) else "L"
 
         if len(group) > 1 and col_label == "L":
             # Multiple [L] items landed in the same Y-band (adjacent lines printed
@@ -422,7 +422,7 @@ def AzureOCRService(image_data: "Path | bytes", display_name: str, run_id: str, 
             content_type=content_type,
             output_content_format="markdown",
         )
-        result = poller.result(timeout=config._ADI_TIMEOUT_S)
+        result = poller.result(timeout=config.ADI_TIMEOUT_S)
         latency_ms = (time.monotonic() - start) * 1000
 
         pages    = len(result.pages) if result.pages else 1
@@ -479,9 +479,9 @@ def _detect_currency_from_ocr(ocr_text: str) -> str | None:
     Returns None when no signal is found (caller falls back to store-name
     inference, then the LLM's own currency guess, then 'USD').
     """
-    for pattern, code in ocr_config._SPATIAL_NOISE_LINE:
+    for pattern, code in ocr_config.CURRENCY_MARKERS:
         if pattern.search(ocr_text):
             return code
-    if ocr_config._US_STORE_OCR_RE.search(ocr_text):
+    if ocr_config.US_STORE_OCR_RE.search(ocr_text):
         return "USD"
     return None

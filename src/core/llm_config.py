@@ -4,12 +4,12 @@ import re
 
 # --- Global Receipt Cleaning Regexes ---
 
-_PRICE_RE       = re.compile(r"(\d+\.?\d*)")
-_UNIT_STRIP     = re.compile(r"\b(W|EA|PK|F|N|X|O|T|PC|CT|BG|LT|BT|CN|OZ|MRJ|RQ|FV|IQF|WLD|each)\b", re.IGNORECASE)
-_PRICE_FMT      = re.compile(r"^\d+\.\d{2}\s*[A-Za-z]?$")  # "4.79", "4.79S", "4.79 S"
-_ITEM_CODE      = re.compile(r"^\d{4,}\s+")            # leading 4+ digit item/barcode code
-_PRICE_LETTER   = re.compile(r"^(\d+\.?\d*)[A-Za-z]+$")  # "11.99A", "8.99N"
-_NON_PRODUCT    = re.compile(
+PRICE_RE       = re.compile(r"(\d+\.?\d*)")
+UNIT_STRIP     = re.compile(r"\b(W|EA|PK|F|N|X|O|T|PC|CT|BG|LT|BT|CN|OZ|MRJ|RQ|FV|IQF|WLD|each)\b", re.IGNORECASE)
+PRICE_FMT      = re.compile(r"^\d+\.\d{2}\s*[A-Za-z]?$")  # "4.79", "4.79S", "4.79 S"
+# _ITEM_CODE      = re.compile(r"^\d{4,}\s+")            # leading 4+ digit item/barcode code
+PRICE_LETTER   = re.compile(r"^(\d+\.?\d*)[A-Za-z]+$")  # "11.99A", "8.99N"
+NON_PRODUCT    = re.compile(
     r"\b(tax|saving|savings|discount|instant\s+saving|subtotal|total|"
     r"redemp|crv|deposit|donation|charity|bag\s+fee|bottle\s+dep|"
     # Payment terminal / card slip lines
@@ -29,7 +29,7 @@ _NON_PRODUCT    = re.compile(
 )
 # Structural junk: URLs, EMV AIDs (A000...), "Item N" placeholders,
 # approval code lines ("00 APPROVED"), standalone short codes ("SC")
-_JUNK_NAME = re.compile(
+JUNK_NAME = re.compile(
     r"(www\.|\.com\b|\.org\b|jobs\.|"          # URLs
     r"^[Aa][0-9a-fA-F]{8,}|"                   # EMV AID e.g. A0000000031010
     r"^\d{2,3}\s+[A-Z]{2,}|"                   # "00 APPROVED", "03 DECLINED"
@@ -53,13 +53,13 @@ _JUNK_NAME = re.compile(
     re.IGNORECASE,
 )
 # Sale-modifier prefix — remove "(SALE)" prefix from duplicated item names
-_SALE_PREFIX = re.compile(r"^\(sale\)\s+", re.IGNORECASE)
+SALE_PREFIX = re.compile(r"^\(sale\)\s+", re.IGNORECASE)
 
-_MAX_ITEM_PRICE = 99.0   # prices above this are almost certainly totals/subtotals
-_MIN_ITEM_PRICE = 0.50   # prices below this are almost certainly CA CRV / deposit fees bleeding in
+MAX_ITEM_PRICE = 99.0   # prices above this are almost certainly totals/subtotals
+MIN_ITEM_PRICE = 0.50   # prices below this are almost certainly CA CRV / deposit fees bleeding in
 
 # Add this to your regex definitions
-_ADDRESS_LEAK = re.compile(
+ADDRESS_LEAK = re.compile(
     r"\b(\d{3,}\s+(?:N|S|E|W|North|South|East|West)\s+)?[\w\s]{2,}(Street|St|Avenue|Ave|Road|Rd|Blvd|Boulevard|Drive|Dr|Way|Court|Ct|Circle|Cir|Lane|Ln|Suite|Ste|Unit|Floor|Fl)\b",
     re.IGNORECASE
 )
@@ -68,15 +68,15 @@ _ADDRESS_LEAK = re.compile(
 # Long-receipt chunking
 # ---------------------------------------------------------------------------
 
-_CHUNK_HEADER_LINES    = 6      # lines to prepend to every chunk (store/date context)
-_CHUNK_MAX_CHARS       = 700    # max body chars per chunk (excluding prepended header)
-_CHUNK_OVERLAP_LINES   = 6      # overlap between chunks — 6 lines keeps item+price+CA REDEMP VA together
+CHUNK_HEADER_LINES    = 6      # lines to prepend to every chunk (store/date context)
+CHUNK_MAX_CHARS       = 700    # max body chars per chunk (excluding prepended header)
+CHUNK_OVERLAP_LINES   = 6      # overlap between chunks — 6 lines keeps item+price+CA REDEMP VA together
 
 
 # ---------------------------------------------------------------------------
 # Tier 1 — OCR noise filter
 # ---------------------------------------------------------------------------
-_NOISE_LINE = re.compile(
+NOISE_LINE = re.compile(
     r"^\s*(?:"
     r"sub\s*total|subtotal|total|net\s*total|grand\s*total|"
     r"hst|gst|pst|qst|vat|tax|surcharge|"
@@ -103,7 +103,7 @@ _NOISE_LINE = re.compile(
 # the full receipt (~50 tokens vs 6985).  If the repair still fails, escalate
 # to a stronger model via OpenRouter.
 
-_REPAIR_ESCALATION_MODEL = "google/gemini-flash-1.5"   # cheap + strong structured extraction
+REPAIR_ESCALATION_MODEL = "google/gemini-flash-1.5"   # cheap + strong structured extraction
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ _REPAIR_ESCALATION_MODEL = "google/gemini-flash-1.5"   # cheap + strong structur
 # back to the canonical "as-written" store name used in the ground truth.
 # Keys are upper-cased for case-insensitive lookup.
 # ---------------------------------------------------------------------------
-_STORE_ALIASES: dict[str, str] = {
+STORE_ALIASES: dict[str, str] = {
     "NOFRILLS":         "No Frills",
     "NO FRILLS":        "No Frills",
     "COSTCO WHOLESALE": "Costco Wholesale",
@@ -134,7 +134,7 @@ _STORE_ALIASES: dict[str, str] = {
 
 
 # Known Canadian stores — when OCR has no explicit CAD marker, infer from store name.
-_CANADIAN_STORE_NAMES: frozenset[str] = frozenset({
+CANADIAN_STORE_NAMES: frozenset[str] = frozenset({
     "No Frills",
     "Real Canadian Superstore",
     "T&T Supermarket",
@@ -149,7 +149,7 @@ _CANADIAN_STORE_NAMES: frozenset[str] = frozenset({
 })
 
 # Known US stores — used to override an LLM-hallucinated non-USD currency code.
-_US_STORE_KEYWORDS: tuple[str, ...] = (
+US_STORE_KEYWORDS: tuple[str, ...] = (
     "KROGER", "INGLES", "WALMART", "WAL-MART", "TARGET", "VONS",
     "RALPHS", "SAFEWAY", "ALBERTSONS", "PUBLIX", "HEB", "WHOLE FOODS",
     "TRADER JOE", "COSTCO",  # Costco has US and CA locations; OCR marker takes precedence
@@ -159,34 +159,34 @@ _US_STORE_KEYWORDS: tuple[str, ...] = (
 
 # OCR number spacing (`1. 160`, `1. 72`) confuses it.  This regex + function
 # parses the raw OCR deterministically and injects the correct price/amount.
-_WEIGHT_ITEM_RE = re.compile(
+WEIGHT_ITEM_RE = re.compile(
     r'([\d]+\.[\d]+)\s*kg\s*@\s*\$\s*([\d]+\.[\d]+)\s*/kg(?:\s+([\d]+\.[\d]+))?',
     re.IGNORECASE,
 )
-_NORM_SPACED_NUM  = re.compile(r'(\d)\.\s+(\d)')   # "1. 160" → "1.160"
-_DANGLING_PRICE   = re.compile(r'^\$?(\d+\.\d{2})\s*$')   # a line that is ONLY a price: "2.00", "$2.00"
-_ENDS_WITH_PRICE  = re.compile(r'\$?\d+\.\d{2}\s*$')      # line already ends with a price
+NORM_SPACED_NUM  = re.compile(r'(\d)\.\s+(\d)')   # "1. 160" → "1.160"
+DANGLING_PRICE   = re.compile(r'^\$?(\d+\.\d{2})\s*$')   # a line that is ONLY a price: "2.00", "$2.00"
+ENDS_WITH_PRICE  = re.compile(r'\$?\d+\.\d{2}\s*$')      # line already ends with a price
 
 # Matches lines that look like a street address: start with a number followed by
 # a street name, optionally followed by city/state/ZIP on the same or next line.
-_STREET_LINE = re.compile(
+STREET_LINE = re.compile(
     r"^\s*\d+\s+\w[\w\s,\.#-]{5,}(?:st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|way|pkwy|hwy|cyn|canyon)\b",
     re.IGNORECASE,
 )
-_CITY_STATE_ZIP = re.compile(r"[A-Z][a-zA-Z\s]+,?\s+[A-Z]{2}\s+\d{5}", re.IGNORECASE)
+CITY_STATE_ZIP = re.compile(r"[A-Z][a-zA-Z\s]+,?\s+[A-Z]{2}\s+\d{5}", re.IGNORECASE)
 
 # Regex for dates paired with a transaction time — the most reliable way to
 # identify the actual purchase timestamp vs promotional/contest dates.
-_TX_DATE_TIME_RE = re.compile(
+TX_DATE_TIME_RE = re.compile(
     r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})\s+\d{1,2}:\d{2}'   # MM/DD/YY HH:MM
     r'|(\d{4}[/\-]\d{2}[/\-]\d{2})\s+\d{2}:\d{2}',           # YYYY-MM-DD HH:MM
 )
 # Months for written-out dates like "Feb 10 2026"
-_MONTH_NAMES = {
+MONTH_NAMES = {
     "jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
     "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12,
 }
-_WRITTEN_DATE_RE = re.compile(
+WRITTEN_DATE_RE = re.compile(
     r'\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2})\s+(20\d{2})\b',
     re.IGNORECASE,
 )

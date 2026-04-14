@@ -60,7 +60,7 @@ def _call_clod(messages: List[Dict[str, str]], model: str) -> Dict[str, Any]:
         "max_tokens": 4096
     }
     
-    with httpx.Client(timeout=config._CLOD_TIMEOUT_S) as client:
+    with httpx.Client(timeout=config.CLOD_TIMEOUT_S) as client:
         response = client.post(config.CLOD_API_URL, json=payload, headers=headers)
         response.raise_for_status()
         return response.json()
@@ -217,7 +217,7 @@ def _split_ocr_into_chunks(ocr_text: str) -> list[str]:
 
     When no spatial section exists the entire raw OCR is chunked as before.
 
-    In both cases the body is split at line boundaries with _CHUNK_OVERLAP_LINES
+    In both cases the body is split at line boundaries with CHUNK_OVERLAP_LINES
     of overlap to prevent cutting a multi-line item row.
     """
     _SPATIAL_MARKER = "\n---\n## SPATIAL LAYOUT\n"
@@ -278,17 +278,17 @@ def _split_ocr_into_chunks(ocr_text: str) -> list[str]:
         body_lines = spatial_part.split('\n')
     else:
         lines  = ocr_text.split('\n')
-        header = lines[:llm_config._CHUNK_HEADER_LINES]
-        body_lines = lines[llm_config._CHUNK_HEADER_LINES:]
+        header = lines[:llm_config.CHUNK_HEADER_LINES]
+        body_lines = lines[llm_config.CHUNK_HEADER_LINES:]
 
     chunks: list[str] = []
     current: list[str] = []
     current_chars = 0
 
     for line in body_lines:
-        if current_chars + len(line) > llm_config._CHUNK_MAX_CHARS and current:
+        if current_chars + len(line) > llm_config.CHUNK_MAX_CHARS and current:
             chunks.append('\n'.join(header + current))
-            current       = current[-llm_config._CHUNK_OVERLAP_LINES:]
+            current       = current[-llm_config.CHUNK_OVERLAP_LINES:]
             current_chars = sum(len(l) for l in current)
         current.append(line)
         current_chars += len(line)
@@ -373,12 +373,12 @@ def _filter_noise_lines(ocr_text: str) -> str:
         raw_part, spatial_part = ocr_text.split(_SPATIAL_MARKER, 1)
         filtered_raw = "\n".join(
             line for line in raw_part.splitlines()
-            if not llm_config._NOISE_LINE.match(line)
+            if not llm_config.NOISE_LINE.match(line)
         )
         return filtered_raw + _SPATIAL_MARKER + spatial_part
     return "\n".join(
         line for line in ocr_text.splitlines()
-        if not llm_config._NOISE_LINE.match(line)
+        if not llm_config.NOISE_LINE.match(line)
     )
 
 
@@ -452,7 +452,7 @@ def _repair_failed_items(
             try:
                 client = OpenAI(api_key=config.OPENROUTER_API_KEY, base_url=config.CLOD_DEFAULT_MODEL)
                 resp = client.chat.completions.create(
-                    model=llm_config._REPAIR_ESCALATION_MODEL,
+                    model=llm_config.REPAIR_ESCALATION_MODEL,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0, max_tokens=16,
                 )
@@ -496,16 +496,16 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
 
         # Drop non-product rows (tax, savings, redemption fees, totals,
         # payment terminal lines, promotional footer text)
-        if llm_config._NON_PRODUCT.search(name):
+        if llm_config.NON_PRODUCT.search(name):
             continue
 
         # Drop structurally-junk names (URLs, EMV AIDs, "Item N", approval codes,
         # phone numbers, timestamps)
-        if llm_config._JUNK_NAME.search(name):
+        if llm_config.JUNK_NAME.search(name):
             continue
 
         # NEW: Explicit address leak check using the regex
-        if llm_config._ADDRESS_LEAK.search(name):
+        if llm_config.ADDRESS_LEAK.search(name):
             continue
 
         # Drop names that are too short to be a real product (single chars, "SC", "R")
@@ -532,27 +532,27 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
 
         # Strip "(SALE)" prefix — these are duplicate rows for a discounted item,
         # not separate products. Remove the prefix so the dedup key matches.
-        name = llm_config._SALE_PREFIX.sub("", name).strip()
+        name = llm_config.SALE_PREFIX.sub("", name).strip()
         item["productName"] = name
 
         # Strip leading item/barcode codes the LLM left in productName
-        clean_name = llm_config._ITEM_CODE.sub("", name).strip()
+        clean_name = llm_config.ITEM_CODE.sub("", name).strip()
         if clean_name and clean_name != name:
             item["productName"] = clean_name
             name = clean_name
 
         # Strip trailing letter tax codes from price (Costco "11.99A" → "11.99")
         raw_price = str(item.get("price") or "")
-        m_letter = llm_config._PRICE_LETTER.match(raw_price.strip())
+        m_letter = llm_config.PRICE_LETTER.match(raw_price.strip())
         if m_letter:
             raw_price = m_letter.group(1)
 
         # Parse price to float
-        m = llm_config._PRICE_RE.search(raw_price)
+        m = llm_config.PRICE_RE.search(raw_price)
         price_val = float(m.group(1)) if m else None
 
         # Drop items with non-positive, implausibly high, or CRV-range price
-        if price_val is not None and (price_val <= 0 or price_val < llm_config._MIN_ITEM_PRICE or price_val > llm_config._MAX_ITEM_PRICE):
+        if price_val is not None and (price_val <= 0 or price_val < llm_config.MIN_ITEM_PRICE or price_val > llm_config.MAX_ITEM_PRICE):
             continue
 
         # Normalize price: ensure currency suffix
@@ -570,17 +570,17 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
 
         # Clear amount if it contains a price pattern and a valid price already exists
         # (amount must be a count/weight, not a dollar value)
-        if llm_config._PRICE_FMT.match(raw_amount) and price_val is not None and price_val > 0:
+        if llm_config.PRICE_FMT.match(raw_amount) and price_val is not None and price_val > 0:
             raw_amount = ""
 
         # Detect column swap: amount looks like a price and price is missing/zero
-        if llm_config._PRICE_FMT.match(raw_amount) and (price_val is None or price_val == 0):
+        if llm_config.PRICE_FMT.match(raw_amount) and (price_val is None or price_val == 0):
             item["price"] = f"{raw_amount}{currency}"
             raw_amount    = ""
 
         # Strip unrecognised unit codes the LLM may have left
         if raw_amount:
-            cleaned_amount = llm_config._UNIT_STRIP.sub("", raw_amount).strip()
+            cleaned_amount = llm_config.UNIT_STRIP.sub("", raw_amount).strip()
             raw_amount = cleaned_amount
 
         # Default amount to "1" if nothing valid remains
@@ -685,7 +685,7 @@ def _find_ocr_context(product_name: str, ocr_text: str, window: int = 3) -> str:
 
 
 def _normalize_store_name(raw: str) -> str:
-    return llm_config._STORE_ALIASES.get((raw or "").strip().upper(), raw)
+    return llm_config.STORE_ALIASES.get((raw or "").strip().upper(), raw)
 
 
 # Known Canadian stores — when OCR has no explicit CAD marker, infer from store name.
@@ -701,7 +701,7 @@ def _infer_currency_from_store(store_name: str) -> str | None:
     name_upper = name.upper()
 
     # Canadian check — exact then partial
-    if name in llm_config._CANADIAN_STORE_NAMES:
+    if name in llm_config.CANADIAN_STORE_NAMES:
         return "CAD"
     canadian_keywords = ("NO FRILLS", "REAL CANADIAN", "T&T SUPERMARKET",
                          "HOUSE OF DOSA", "LOBLAWS", "SOBEYS", "FRESHCO",
@@ -711,7 +711,7 @@ def _infer_currency_from_store(store_name: str) -> str | None:
             return "CAD"
 
     # US check — keyword partial match
-    for kw in llm_config._US_STORE_KEYWORDS:
+    for kw in llm_config.US_STORE_KEYWORDS:
         if kw in name_upper:
             return "USD"
 
@@ -750,7 +750,7 @@ def _join_split_price_lines(ocr_text: str) -> str:
     for line in lines:
         stripped = line.strip()
         if (stripped
-                and llm_config._DANGLING_PRICE.match(stripped)
+                and llm_config.DANGLING_PRICE.match(stripped)
                 and result):
             # Find the last non-blank line in result
             for i in range(len(result) - 1, -1, -1):
@@ -758,7 +758,7 @@ def _join_split_price_lines(ocr_text: str) -> str:
                 if not prev:
                     continue
                 # Only merge if prev doesn't already carry a price
-                if not llm_config._ENDS_WITH_PRICE.search(prev):
+                if not llm_config.ENDS_WITH_PRICE.search(prev):
                     result[i] = prev + '  ' + stripped
                 break
             else:
@@ -778,11 +778,11 @@ def _extract_weight_items_from_ocr(ocr_text: str) -> dict[str, tuple[str, str]]:
     lines = raw.splitlines()
 
     def _norm(s: str) -> str:
-        return llm_config._NORM_SPACED_NUM.sub(r'\1.\2', s).strip()
+        return llm_config.NORM_SPACED_NUM.sub(r'\1.\2', s).strip()
 
     result: dict[str, tuple[str, str]] = {}
     for i, line in enumerate(lines):
-        m = llm_config._WEIGHT_ITEM_RE.search(_norm(line))
+        m = llm_config.WEIGHT_ITEM_RE.search(_norm(line))
         if not m:
             continue
         weight_str = m.group(1)
@@ -881,27 +881,27 @@ def _extract_address_from_ocr(ocr_text: str, store_name: str) -> str:
     lines = ocr_text.splitlines()[:30]
     street_line = ""
     for i, line in enumerate(lines):
-        m = llm_config._STREET_LINE.search(line)
+        m = llm_config.STREET_LINE.search(line)
         if m:
             # Slice from the match start so we don't capture store-name/phone
             # text that precedes the street number on the same OCR line.
             candidate = line[m.start():].strip()
             # If city/state/ZIP already follows on the same line, we're done.
-            if llm_config._CITY_STATE_ZIP.search(candidate):
+            if llm_config.CITY_STATE_ZIP.search(candidate):
                 street_line = candidate
             else:
                 street_line = candidate
                 # Try to append the next line if it looks like city/state/ZIP
                 if i + 1 < len(lines):
                     nxt = lines[i + 1].strip()
-                    if llm_config._CITY_STATE_ZIP.search(nxt):
+                    if llm_config.CITY_STATE_ZIP.search(nxt):
                         street_line = f"{street_line}, {nxt}"
             break
     # If no street line found, look for a city/state/ZIP anywhere in a line,
     # then search backwards for the nearest street number to anchor the address.
     if not street_line:
         for line in lines:
-            czm = llm_config._CITY_STATE_ZIP.search(line)
+            czm = llm_config.CITY_STATE_ZIP.search(line)
             if czm:
                 before = line[:czm.start()]
                 # Find the last street-number candidate (3-5 digits + letter) before the city match
@@ -943,7 +943,7 @@ def _extract_transaction_date(ocr_text: str) -> str | None:
 
     best: str | None = None
 
-    for m in llm_config._TX_DATE_TIME_RE.finditer(raw):
+    for m in llm_config.TX_DATE_TIME_RE.finditer(raw):
         # Check if this date appears after a promo keyword on the same/preceding line
         line_start = raw.rfind('\n', 0, m.start()) + 1
         surrounding = raw[max(0, line_start - 80):m.start()]
@@ -983,11 +983,11 @@ def _extract_transaction_date(ocr_text: str) -> str | None:
 
     # Fallback: look for an explicit written date with 4-digit year (e.g. "Feb 10 2026")
     if not best:
-        for m in llm_config._WRITTEN_DATE_RE.finditer(raw):
+        for m in llm_config.WRITTEN_DATE_RE.finditer(raw):
             surrounding = raw[max(0, m.start() - 80):m.start()]
             if promo_re.search(surrounding):
                 continue
-            mo = llm_config._MONTH_NAMES.get(m.group(1)[:3].lower())
+            mo = llm_config.MONTH_NAMES.get(m.group(1)[:3].lower())
             dy = int(m.group(2))
             yr = int(m.group(3))
             if mo and 2022 <= yr <= 2030 and 1 <= dy <= 31:
