@@ -35,7 +35,6 @@ GROUND_TRUTH_DIR = Path("ground_truth")
 IMAGE_EXTS       = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".tiff", ".tif", ".bmp"}
 
 
-
 def _send_discord_summary(avg_score, total_receipts, rows):
     """
     Sends a formatted summary of the ETL evaluation to a Discord Webhook.
@@ -77,29 +76,49 @@ def _send_discord_summary(avg_score, total_receipts, rows):
 
 
 def run_batch_evaluation(results: list[dict]):
-    # results[0] contains the model/provider used in this batch
-    if not results: return
-    
-    res = results[0]
+    """
+    Scans the local container disk for the just-generated outputs
+    and compares them to the GitHub-pushed ground truth.
+    """
+    # 1. Safety check on results
+    valid_results = [r for r in results if r.get("success") and "model" in r]
+    if not valid_results:
+        print("EVAL: No successful results with model info found to score.")
+        return
+
+    # 2. Setup Paths
+    res = valid_results[0]
     model_slug = res['model'].split("/")[-1].lower()
     
-    # Path to what we just generated
+    # Path to what we just saved in the container
     target_dir = config.OUTPUT_DIR / f"{res['provider']}-{model_slug}"
     # Path to what you pushed to GitHub
     gt_dir = config.GROUND_TRUTH_DIR
 
     print(f"📊 EVAL: Comparing {target_dir} vs {gt_dir}")
 
-    if not gt_dir.exists() or not target_dir.exists():
-        print("❌ EVAL: One of the directories is missing. Skipping.")
+    # 3. Check if directories exist
+    if not gt_dir.exists():
+        print(f"EVAL: Ground Truth folder missing at {gt_dir}")
+        return
+    if not target_dir.exists():
+        print(f"EVAL: Target folder missing at {target_dir}")
         return
 
-    # Run your scoring engine
-    header, rows, scores = _compute_eval(target_dir, gt_dir=gt_dir)
+    # 4. Run Scoring Engine
+    try:
+        # This calls your existing logic that iterates over JSONs
+        header, rows, scores = _compute_eval(target_dir, gt_dir=gt_dir)
 
-    if scores:
-        avg = sum(scores) / len(scores)
-        _send_discord_summary(avg, len(scores), rows)
+        if scores:
+            avg_score = sum(scores) / len(scores)
+            _send_discord_summary(avg_score, len(scores), rows)
+            print(f"Eval Success: {avg_score:.1f}%")
+        else:
+            print("⚠️ EVAL: No matching filenames found between outputs and ground truth.")
+            
+    except Exception as e:
+        print(f"Evaluation engine failed: {e}")
 
 # ---------------------------------------------------------------------------
 # Log loader
