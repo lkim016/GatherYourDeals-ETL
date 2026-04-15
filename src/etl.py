@@ -247,17 +247,38 @@ def flatten_receipt(receipt: dict) -> list[dict]:
     flat_items: list[dict] = []
     for item in receipt.get("items", []):
         name  = str(item.get("productName") or "").strip()
-        price = str(item.get("price") or "").strip()
+        raw_price = str(item.get("price") or "").strip()
 
+        # 1. Normalize price: Remove '$', remove spaces, ensure uppercase
+        price = raw_price.replace("$", "").replace(" ", "").upper()
+        
+        # 2. Fix potential digit check failure with commas AND add USD if missing
+        # We strip dots and commas just for the "is this a number?" check
+        if price.replace(".", "").replace(",", "").isdigit() and "USD" not in price:
+             price += "USD"
+
+        # --- ADD THESE DEBUG PRINTS ---
+        print(f"DEBUG: [Flatten] Processing: '{name}' | Price: '{price}'")
+        
         if not name or not price:
+            print(f"DEBUG: [Flatten] REJECTED: Missing name or price")
             continue
+            
         if not _VALID_PRICE_RE.match(price):
+            print(f"DEBUG: [Flatten] REJECTED: Price '{price}' failed regex")
             continue
+
+        if name == name.lower() and any(c.isalpha() for c in name):
+            print(f"DEBUG: [Flatten] REJECTED: Lowercase/OCR noise")
+            continue
+        # ------------------------------
         if _FLAT_NON_PRODUCT.search(name):
+            print(f"DEBUG: [Flatten] REJECTED: Non-product keyword")
             continue
 
         # General fix 2: store name contained in product name → header leaked in.
         if store_lower and store_lower in name.lower():
+            print(f"DEBUG: [Flatten] REJECTED: Store name leak") # Updated label
             continue
 
         flat_items.append({
@@ -675,16 +696,21 @@ def validate_extraction(raw_items: list[dict], store_name: str, currency: str = 
     
     original_count = len(raw_items)
     fixed_count = len(fixed_items)
+
+    print(f"DEBUG: [Validation] Original: {original_count} | Survived: {fixed_count}")
+
     is_valid = True
 
     # --- HEURISTIC 1: Zero Yield ---
     # LLM found things, but they were all junk/fees/noise.
     if original_count > 0 and fixed_count == 0:
+        print("DEBUG: [Validation] Failed Heuristic 1: Zero Yield")
         is_valid = False
 
     # --- HEURISTIC 2: High Attrition ---
     # If we dropped > 60% of items, the extraction is likely 'dirty' (e.g., footer text).
     if original_count > 3 and (fixed_count / original_count) < 0.4:
+        print(f"DEBUG: [Validation] Failed Heuristic 2: Attrition ({fixed_count/original_count:.2%})")
         is_valid = False
 
     # --- HEURISTIC 3: Store Name Integrity ---
