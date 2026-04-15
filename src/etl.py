@@ -551,6 +551,7 @@ if _RT_AVAILABLE:
 
     class OcrInput(BaseModel):
         image_path: str   # serialised as string; converted back to Path in node
+        display_name: str
         run_id:     str
         user_name:  str
         model:      str
