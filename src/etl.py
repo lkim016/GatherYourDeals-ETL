@@ -76,7 +76,6 @@ import base64
 
 from src import reporting as rpt  # noqa: E402 (after load_dotenv)
 from src.logs import etl_logger as el
-from src.logs import reporting as rpt
 
 # OR, if you want to use them directly without the 'prompts.' prefix:
 from src.core import config, prompts, llm_config
@@ -238,6 +237,8 @@ def run_batch_evaluation(results: list[dict]):
     The main entry point called by app.py.
     Ties together hydration, scoring, and Discord.
     """
+    from src.logs import reporting as rpt
+    
     # 1. Prepare the GT files from the environment variable
     gt_path = _hydrate_ground_truth_from_env()
     if not gt_path:
