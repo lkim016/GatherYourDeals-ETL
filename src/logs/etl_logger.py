@@ -159,12 +159,14 @@ def log_pipeline(trace_id, image_name, user_id, provider, model,
         "error":             error,
     })
 
+    _log(log_data)
+    
     # 2. Only ping Discord if something actually broke
-    if not success:
-        _log(log_data)
-    else:
-        # 1. Always print to Railway console
-        print(json.dumps(log_data))
+    # if not success:
+    #     _log(log_data)
+    # else:
+    #     # 1. Always print to Railway console
+    #     print(json.dumps(log_data))
 
 
 def log_upload(trace_id, image_name, user_id,
