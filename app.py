@@ -515,7 +515,7 @@ async def run_etl(
         content={
             "success": succeeded == len(results),
             "message": f"{succeeded}/{len(results)} succeeded",
-            "results": results if len(results) > 1 else results[0] # Return list for batch, dict for single
+            "results": results
         }
     )
 
