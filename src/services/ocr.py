@@ -6,7 +6,7 @@ from pathlib import Path
 from src.core import config, ocr_config
 from src.utils import image_proc
 # Also import these from etl_logger for the log_adi call
-from src.etl_logger import log_adi, ADI_COST_PER_PAGE
+from src.logs.etl_logger import log_adi, ADI_COST_PER_PAGE
 
 
 # Identifies savings/discount lines in the spatial layout so they can be
