@@ -256,11 +256,6 @@ def flatten_receipt(receipt: dict) -> list[dict]:
         if _FLAT_NON_PRODUCT.search(name):
             continue
 
-        # General fix 1: all-lowercase name → garbled OCR noise.
-        # Real receipt product names are always CAPS or Title Case.
-        if name == name.lower() and any(c.isalpha() for c in name):
-            continue
-
         # General fix 2: store name contained in product name → header leaked in.
         if store_lower and store_lower in name.lower():
             continue
