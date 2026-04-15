@@ -103,7 +103,7 @@ _OCR_SEMAPHORE = None
 def get_ocr_sem():
     global _OCR_SEMAPHORE
     if _OCR_SEMAPHORE is None:
-        _OCR_SEMAPHORE = asyncio.Semaphore(14)
+        _OCR_SEMAPHORE = asyncio.Semaphore(1)
     return _OCR_SEMAPHORE
 
 # Define the global limit for LLM concurrency
@@ -113,7 +113,7 @@ _LLM_SEMAPHORE = None
 def get_llm_sem():
     global _LLM_SEMAPHORE
     if _LLM_SEMAPHORE is None:
-        _LLM_SEMAPHORE = asyncio.Semaphore(6)
+        _LLM_SEMAPHORE = asyncio.Semaphore(1)
     return _LLM_SEMAPHORE
 
 # Keep geocoding tight - most APIs hate more than 1 or 2 at the exact same time
