@@ -466,12 +466,14 @@ async def run_etl(
     Set `mock=true` to skip real API calls and simulate pipeline latency instead
     (zero cost — for Experiment 1 Phase B load testing).
     """
-    logger.info(f"Checking source: {source}")
+
     # 1. SETUP & AUTH
     auth_header = request.headers.get("Authorization", "")
     jwt_token = auth_header.removeprefix("Bearer ").strip() or None
     refresh_token = body.refresh_token or None
     source = (body.source or "").strip()
+
+    logger.info(f"Checking source: {source}")
 
     if not source:
         return JSONResponse(status_code=400, content={"success": False, "message": "Source required"})
