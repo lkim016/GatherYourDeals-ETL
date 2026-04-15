@@ -377,6 +377,8 @@ async def _process_one(
         out_dir = config.OUTPUT_DIR / f"{provider}-{model_slug}"
         out_dir.mkdir(parents=True, exist_ok=True)
         # Use 'data' here, not 'rows'
+        print(f"DEBUG: Type of data is {type(data)} | Keys: {list(data.keys()) if isinstance(data, dict) else 'N/A'}")
+
         (out_dir / (Path(display_name).stem + ".json")).write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
