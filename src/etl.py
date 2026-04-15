@@ -923,17 +923,36 @@ def main():
         try:
             data = extract(img, img.name, args.user, resolved_model, run_id, provider=args.provider,
                            use_cache=not args.no_ocr_cache)
+            # --- ADD THESE THREE LINES ---
+            print(f"DEBUG: Processing {img.name}")
+            print(f"DEBUG: Global Store: {data.get('storeName')} | Global Date: {data.get('purchaseDate')}")
+            
+            if data.get("items"):
+                print(f"DEBUG: First Item Keys: {list(data['items'][0].keys())}")
+                print(f"DEBUG: First Item Values: {data['items'][0]}")
+            else:
+                print("DEBUG: No items found in data dict!")
+            # -----------------------------
+            
             total_ms = (time.monotonic() - _start) * 1000
             log_pipeline(run_id, img.name, args.user, args.provider, resolved_model, total_ms, True)
             
             rows = data["items"]
 
-            # --- AUDIT PRINT (The only thing you need for debugging) ---
+            # --- AUDIT PRINT (Final check before upload) ---
             if rows:
-                first_item = rows[0]
-                print(f"DEBUG Check: First item has store={first_item.get('storeName')}, date={first_item.get('purchaseDate')}")
-            # -----------------------------------------------------------
-            
+                sample = rows[0]
+                # This prints all 5 fields the server is looking for
+                print(f"DEBUG [{img.name}] First Item Check: "
+                    f"name='{sample.get('productName')}', "
+                    f"date='{sample.get('purchaseDate')}', "
+                    f"price='{sample.get('price')}', "
+                    f"amount='{sample.get('amount')}', "
+                    f"store='{sample.get('storeName')}'")
+            else:
+                print(f"DEBUG [{img.name}] ERROR: No items found after extraction/flattening!")
+            # ------------------------------------------------
+
             model_slug = resolved_model.split("/")[-1].lower()
             provider_out_dir = config.OUTPUT_DIR / f"{args.provider}-{model_slug}"
             provider_out_dir.mkdir(parents=True, exist_ok=True)
@@ -941,6 +960,11 @@ def main():
             out.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
             print(f"  saved  {out}  ({len(rows)} items)")
             if do_upload:
+                # --- ADD THIS ---
+                # This prints the first item exactly as it's being sent to the server
+                if data.get("items"):
+                    print(f"DEBUG DATA CHECK: {json.dumps(data['items'][0], indent=2)}")
+                # ----------------
                 data["imageName"] = img.name
                 created = upload(data, run_id)
                 print(f"  uploaded {len(created)}/{len(rows)} items")
