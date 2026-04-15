@@ -71,14 +71,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import os
-import requests
 import time
-import traceback
+import base64
 
-from src.reporting import eval_receipts, baseline_report  # noqa: E402 (after load_dotenv)
-from src.etl_logger import (  # noqa: E402
-    log_adi, log_llm, log_pipeline, log_upload, ADI_COST_PER_PAGE,
-)
+from src import reporting as rpt  # noqa: E402 (after load_dotenv)
+from src.logs import etl_logger as el
+from src.logs import reporting as rpt
 
 # OR, if you want to use them directly without the 'prompts.' prefix:
 from src.core import config, prompts, llm_config
@@ -206,6 +204,62 @@ async def ocr_node(image_path, run_id, user_id):
 
 
 # ---------------------------------------------------------------------------
+# Discord LOGS
+# ---------------------------------------------------------------------------
+def _hydrate_ground_truth_from_env():
+    """
+    Decodes ground truth data from an environment variable if no physical directory exists.
+    Expected format: A Base64 encoded JSON string: {"filename.json": [...content...]}
+    """
+    blob = os.getenv("GROUND_TRUTH_JSON_BLOB")
+    if not blob:
+        return None
+
+    temp_gt_dir = Path("/tmp/ground_truth")
+    temp_gt_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # Decode and parse the blob
+        decoded_data = json.loads(base64.b64decode(blob).decode('utf-8'))
+        for filename, content in decoded_data.items():
+            file_path = temp_gt_dir / filename
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(content, f)
+        
+        print(f"Hydrated {len(decoded_data)} ground truth files from environment.")
+        return temp_gt_dir
+    except Exception as e:
+        print(f"Error hydrating ground truth blob: {e}")
+        return None
+
+
+def run_batch_evaluation(results: list[dict]):
+    """
+    The main entry point called by app.py.
+    Ties together hydration, scoring, and Discord.
+    """
+    # 1. Prepare the GT files from the environment variable
+    gt_path = _hydrate_ground_truth_from_env()
+    if not gt_path:
+        print("Evaluation skipped: GROUND_TRUTH_JSON_BLOB not set.")
+        return
+
+    # 2. Use your existing logic to calculate the scores
+    # Note: d is the output directory where _process_one just saved the JSONs
+    # We grab the most recent provider-model directory created
+    output_base = config.OUTPUT_DIR
+    provider_dirs = [d for d in sorted(output_base.iterdir()) if d.is_dir()]
+    target_dir = provider_dirs[-1] if provider_dirs else output_base
+
+    # Call your logic!
+    header, rows, scores = rpt.compute_eval(target_dir, gt_dir=gt_path)
+
+    # 3. Send the summary to Discord
+    if scores:
+        avg = sum(scores) / len(scores)
+        rpt.send_discord_summary(avg, len(scores), rows)
+
+# ---------------------------------------------------------------------------
 # Output flattening — denormalize receipt metadata into per-item records
 # ---------------------------------------------------------------------------
 
@@ -316,37 +370,6 @@ def flatten_receipt(receipt: dict) -> list[dict]:
         deduped.extend(keep)
 
     return deduped
-
-
-def _send_to_discord(entry: dict):
-    """
-    Internal helper to forward JSONL log entries to Discord.
-    This replaces the need for a separate audit_log function.
-    """
-    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
-    
-    if not webhook_url:
-        return
-
-    # Determine status for color-coding or emoji
-    is_success = entry.get("level") == "INFO"
-    status_emoji = "✅" if is_success else "❌"
-    event_type = entry.get("event", "unknown").upper()
-    
-    # Format the JSON entry for a Discord code block
-    # Truncate to avoid Discord's 2000 character message limit
-    content = json.dumps(entry, indent=2, ensure_ascii=False)
-    if len(content) > 1800:
-        content = content[:1800] + "\n... (truncated)"
-    
-    payload = {
-        "content": f"{status_emoji} **ETL {event_type}** | `{entry.get('image_name')}`\n```json\n{content}\n```"
-    }
-    
-    try:
-        requests.post(webhook_url, json=payload, timeout=5)
-    except Exception as e:
-        print(f"Failed to forward log to Discord: {e}")
 
 
 def structure(ocr_text: str, display_name: str, user_name: str,
@@ -513,15 +536,13 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         
         # --- LOGGING & DISCORD FORWARDING ---
         # 1. Create the log entry
-        log_entry = log_llm(
+        log_entry = el.log_llm(
             run_id, display_name, user_name, resolved_provider, model,
             total_pt, total_ct, total_cost, latency_ms,
             len(result["items"]), True,
             cost_source=cost_source, latency_source=latency_source,
                 input_chars=_input_chars, prompt_path=_prompt_path
         )
-        # 2. Forward to Discord
-        _send_to_discord(log_entry)
 
         return result, total_pt, total_ct, total_cost
 
@@ -534,13 +555,11 @@ def structure(ocr_text: str, display_name: str, user_name: str,
 
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
-        error_log = log_llm(
+        error_log = el.log_llm(
             run_id, display_name, user_name, resolved_provider, model,
             0, 0, 0.0, latency_ms, 0, False, str(e), latency_source="local",
             input_chars=_input_chars, prompt_path=_prompt_path
         )
-        # Forward error log to Discord
-        _send_to_discord(error_log)
         raise e
     
 # ---------------------------------------------------------------------------
@@ -862,7 +881,7 @@ def upload(receipt: dict, run_id: str, token: str | None = None, refresh_token: 
             failed += 1
 
     latency_ms = (time.monotonic() - start) * 1000
-    log_upload(run_id, image_name, receipt.get("userName", ""),
+    el.log_upload(run_id, image_name, receipt.get("userName", ""),
                len(items), len(created), failed, latency_ms,
                failed == 0, f"{failed} items failed" if failed else None)
 
@@ -923,10 +942,10 @@ def main():
         resolved_model = args.model or config.OR_DEFAULT_MODEL
 
     if args.eval:
-        eval_receipts(); return
+        rpt.eval_receipts(); return
 
     if args.baseline_report:
-        baseline_report(); return
+        rpt.baseline_report(); return
 
     if not args.path:
         p.print_help(); sys.exit(1)
@@ -963,7 +982,7 @@ def main():
             # -----------------------------
             
             total_ms = (time.monotonic() - _start) * 1000
-            log_pipeline(run_id, img.name, args.user, args.provider, resolved_model, total_ms, True)
+            el.log_pipeline(run_id, img.name, args.user, args.provider, resolved_model, total_ms, True)
             
             rows = data["items"]
 
@@ -998,7 +1017,7 @@ def main():
                 print(f"  uploaded {len(created)}/{len(rows)} items")
         except Exception as e:
             total_ms = (time.monotonic() - _start) * 1000
-            log_pipeline(run_id, img.name, args.user, args.provider, resolved_model, total_ms, False, str(e))
+            el.log_pipeline(run_id, img.name, args.user, args.provider, resolved_model, total_ms, False, str(e))
             print(f"  ERROR: {e}", file=sys.stderr)
             errors += 1
 

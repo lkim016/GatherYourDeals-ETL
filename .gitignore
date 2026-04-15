@@ -41,9 +41,8 @@ Receipts/
 ReceiptJson/
 ground_truth/
 
-reports/
 scripts/
-logs/
+data/
 experiments/
 debug/
 tests/

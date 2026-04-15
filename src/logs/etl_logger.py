@@ -10,17 +10,62 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from src.core import config
+import requests
+import os
 
 # ADI cost per page — always log at S0 rate ($0.0015/page) for accurate
 # production cost tracking, regardless of free tier usage.
 ADI_COST_PER_PAGE = 0.0015
 
 
+def _send_to_discord(entry: dict):
+    """
+    Internal helper to forward JSONL log entries to Discord.
+    This replaces the need for a separate audit_log function.
+    """
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+    
+    if not webhook_url:
+        return
+
+    # Determine status for color-coding or emoji
+    is_success = entry.get("level") == "INFO"
+    status_emoji = "✅" if is_success else "❌"
+    event_type = entry.get("event", "unknown").upper()
+    
+    # Format the JSON entry for a Discord code block
+    # Truncate to avoid Discord's 2000 character message limit
+    content = json.dumps(entry, indent=2, ensure_ascii=False)
+    if len(content) > 1800:
+        content = content[:1800] + "\n... (truncated)"
+    
+    payload = {
+        "content": f"{status_emoji} **ETL {event_type}** | `{entry.get('image_name')}`\n```json\n{content}\n```"
+    }
+    
+    try:
+        requests.post(webhook_url, json=payload, timeout=5)
+    except Exception as e:
+        print(f"Failed to forward log to Discord: {e}")
+
+############################
+
 def _log(entry: dict):
-    config.LOGS_DIR.mkdir(exist_ok=True)
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    with open(config.LOGS_DIR / f"etl_{date}.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    # 1. ALWAYS print to stdout for Railway
+    # This ensures your 'pipeline_complete' event is searchable in the Railway dashboard
+    print(json.dumps(entry)) 
+
+    # 2. Save to local file (Optional - only if you have a Volume mounted)
+    # If no Volume is mounted, this file will be lost on next deploy
+    log_file = config.LOGS_DIR / f"etl_{datetime.now().strftime('%Y%m')}.jsonl"
+    try:
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        print(f"File logging failed: {e}")
+
+    # 3. Forward to Discord
+    _send_to_discord(entry)
 
 
 def log_adi(trace_id, image_name, user_id, image_size_bytes,
@@ -94,16 +139,11 @@ def log_llm(trace_id, image_name, user_id, provider, model,
     # 2. Call your internal logger (if it exists)
     _log(log_data)
 
-    # 3. ADD THIS LINE:
-    return log_data
-
-
-
 
 def log_pipeline(trace_id, image_name, user_id, provider, model,
-                 total_latency_ms, success, error=None):
+                 total_latency_ms, success, error=None, cost_usd=0.0):
     """Log end-to-end pipeline latency for one receipt (OCR + LLM + geocode)."""
-    _log({
+    log_data = ({
         "time":              datetime.now(timezone.utc).isoformat(),
         "level":             "INFO" if success else "ERROR",
         "service":           "etl",
@@ -114,9 +154,17 @@ def log_pipeline(trace_id, image_name, user_id, provider, model,
         "llm_provider":      provider,
         "llm_model":         model,
         "total_latency_ms":  round(total_latency_ms, 1),
+        "cost_usd": round(cost_usd, 6), # High precision for small token costs
         "success":           success,
         "error":             error,
     })
+
+    # 2. Only ping Discord if something actually broke
+    if not success:
+        _log(log_data)
+    else:
+        # 1. Always print to Railway console
+        print(json.dumps(log_data))
 
 
 def log_upload(trace_id, image_name, user_id,

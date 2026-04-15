@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from itertools import combinations
 from pathlib import Path
 from src.core import config
+import requests
+import os
 
 # ---------------------------------------------------------------------------
 # Paths — must match etl.py
@@ -31,6 +33,47 @@ LOGS_DIR         = Path("logs")
 REPORTS_DIR      = Path("reports")
 GROUND_TRUTH_DIR = Path("ground_truth")
 IMAGE_EXTS       = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".tiff", ".tif", ".bmp"}
+
+
+
+def send_discord_summary(avg_score, total_receipts, rows):
+    """
+    Sends a formatted summary of the ETL evaluation to a Discord Webhook.
+    """
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        print("DEBUG: No DISCORD_WEBHOOK_URL found. Skipping Discord notification.")
+        return
+
+    if avg_score >= 85:
+        status = "🟢 Excellent"
+    elif avg_score >= 60:
+        status = "🟡 Tuning Needed"
+    else:
+        status = "🔴 Critical Failure"
+    
+    report_content = (
+        f"**📊 ETL Pipeline Evaluation**\n"
+        f"**Avg Score:** `{avg_score:.1f}%` | **Items:** `{total_receipts}`\n"
+        f"**Status:** {status}\n"
+        f"**Timestamp:** `{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}`\n"
+        f"```\n"
+        f"{'Image':<15} | {'Score':<6}\n"
+        f"{'-' * 24}\n"
+    )
+
+    for row in rows[:5]:
+        img_name = str(row[0])[:15]
+        score_val = str(row[-1])
+        report_content += f"{img_name:<15} | {score_val:<6}\n"
+    
+    report_content += "```"
+
+    try:
+        response = requests.post(webhook_url, json={"content": report_content}, timeout=10)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"ERROR: Failed to send Discord notification: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +209,7 @@ def _score_receipt(output_items: list, truth_items: list) -> dict:
     return scores
 
 
-def _compute_eval(output_dir: Path, gt_dir: Path = config.GROUND_TRUTH_DIR):
+def compute_eval(output_dir: Path, gt_dir: Path = config.GROUND_TRUTH_DIR):
     """Score every output/<stem>.json against ground_truth/<stem>.json."""
     header = ("Image", "GT items", "Store", "Date", "Lat", "Lon",
               "Items", "Name match", "Price match", "Amount match", "Score")
@@ -229,7 +272,7 @@ def eval_receipts(output_dir: Path = config.OUTPUT_DIR, gt_dir: Path = config.GR
     ]
 
     for d in dirs_to_eval:
-        header, rows, scores = _compute_eval(d, gt_dir)
+        header, rows, scores = compute_eval(d, gt_dir)
         if not rows:
             continue
         label = d.name if provider_dirs else "output"
@@ -576,7 +619,7 @@ def baseline_report():
         if not prov_dir.exists():
             eval_md += [f"### {prov_label}", "", f"_No output at `{prov_dir}/`_", ""]
             continue
-        eval_header, eval_rows, eval_scores = _compute_eval(output_dir=prov_dir)
+        eval_header, eval_rows, eval_scores = compute_eval(output_dir=prov_dir)
         if not eval_rows:
             continue
         any_eval = True

@@ -53,7 +53,7 @@ from pydantic import BaseModel
 
 from src import etl as _etl
 from src.core import config
-from src.etl_logger import log_pipeline
+from src.logs import etl_logger as el
 
 import gdown
 from google.oauth2.credentials import Credentials
@@ -331,38 +331,42 @@ async def _collect_single_file(source: str) -> tuple[bytes | None, str | None]:
 # Single-image pipeline (shared by single and batch paths)
 # ---------------------------------------------------------------------------
 
-
 async def _process_one(
     image_bytes: bytes,
     display_name: str,
     jwt_token: str | None,
     refresh_token: str | None = None,
 ) -> dict:
-    """Run the full ETL pipeline for one image already loaded into memory.
-
-    Returns a dict with keys: success (bool), message (str).
-    Never raises — all exceptions are caught and returned as failure dicts.
-    """
     run_id = str(uuid.uuid4())
     provider = config.LLM_PROVIDER
     model = config.CLOD_DEFAULT_MODEL if provider == "clod" else config.OR_DEFAULT_MODEL
-
+    
     pipeline_start = time.monotonic()
+    
+    # Track state for the final log
+    success = False
+    error_msg = None
+    registry = None
+    total_cost = 0.0
+
     try:
+        # 1. EXTRACTION
         try:
             data = await asyncio.to_thread(
                 _etl.extract, image_bytes, display_name, _DEFAULT_USER, model, run_id, provider
             )
+            
+            # Capture the cost from the extraction metadata
+            total_cost = data.get("llm_cost_usd", 0.0)
         except Exception as exc:
-            total_ms = (time.monotonic() - pipeline_start) * 1000
-            log_pipeline(run_id, display_name, _DEFAULT_USER, provider, model,
-                         total_ms, False, str(exc))
-            return {"success": False, "message": f"Failed to parse data from source: {exc}"}
+            error_msg = f"extraction: {exc}"
+            return {"success": False, "message": f"Failed to parse data: {exc}"}
 
+        # 2. TRANSFORM
         rows = _etl.flatten_receipt(data)
-        
         data["items"] = rows
-
+        
+        # Save local copy for Eval
         model_slug = model.split("/")[-1].lower()
         out_dir = config.OUTPUT_DIR / f"{provider}-{model_slug}"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -370,45 +374,46 @@ async def _process_one(
             json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
-        # --- PRE-UPLOAD DEBUG ---
-        print(f"DEBUG: [Upload] Preparing payload for {display_name}")
-        print(f"DEBUG: [Upload] Rows to send: {len(data.get('items', []))}")
-        if data.get("items"):
-            # Check the first item to ensure "storeName" and "purchaseDate" are actually there
-            print(f"DEBUG: [Upload] Sample Row: {data['items'][0]}")
-
+        # 3. UPLOAD
         data["imageName"] = display_name
         try:
             created = _etl.upload(data, run_id, token=jwt_token, refresh_token=refresh_token)
-            print(f"  ✓  [Upload] Success: {len(created)} records created") # Success log
+            print(f"  ✓  [Upload] Success: {len(created)} records")
         except Exception as exc:
-            # --- CRITICAL FAILURE DEBUG ---
             import traceback
-            print(f"\n[ERROR] UPLOAD FAILED for {display_name}")
-            print(f"Exception Type: {type(exc).__name__}")
-            print(f"Exception Detail: {str(exc)}")
-            
-            # This prints the EXACT line in the upload function that failed
             traceback.print_exc()
+            error_msg = f"upload: {exc}"
+            return {"success": False, "message": f"Upload error: {exc}"}
 
-            total_ms = (time.monotonic() - pipeline_start) * 1000
-            log_pipeline(run_id, display_name, _DEFAULT_USER, provider, model,
-                         total_ms, False, f"upload: {exc}")
-            return {"success": False, "message": f"Unexpected error during ETL process: {exc}"}
-
+        # 4. REGISTRY
         image_stem = Path(display_name).stem or display_name
-        registry = {image_stem: [r.id for r in created]}
-        _etl._registry_save(image_stem, [r.id for r in created])
-
-        total_ms = (time.monotonic() - pipeline_start) * 1000
-        log_pipeline(run_id, display_name, _DEFAULT_USER, provider, model, total_ms, True)
+        record_ids = [r.id for r in created]
+        registry = {image_stem: record_ids}
+        _etl._registry_save(image_stem, record_ids)
+        
+        # If we reached here, it's a success
+        success = True
         return {"success": True, "message": "ETL completed successfully", "registry": registry}
 
     except Exception as exc:
-        total_ms = (time.monotonic() - pipeline_start) * 1000
-        log_pipeline(run_id, display_name, _DEFAULT_USER, provider, model, total_ms, False, str(exc))
-        return {"success": False, "message": f"Unexpected error during ETL process: {exc}"}
+        error_msg = f"unhandled: {exc}"
+        return {"success": False, "message": f"Unexpected error: {exc}"}
 
+    finally:
+        # --- THE DRY LOGGING ZONE ---
+        # This runs NO MATTER WHAT (success, specific error, or unhandled error)
+        total_ms = (time.monotonic() - pipeline_start) * 1000
+        el.log_pipeline(
+            run_id, 
+            display_name, 
+            _DEFAULT_USER, 
+            provider, 
+            model, 
+            total_ms, 
+            success, 
+            error=error_msg,
+            cost_usd=total_cost
+        )
 
 # ---------------------------------------------------------------------------
 # Mock pipeline helper (Experiment 1 Phase B — zero API cost load test)
@@ -530,6 +535,18 @@ async def run_etl(
 
     # Run everything in the list
     results = await asyncio.gather(*[_process_wrapper(e) for e in file_pairs])
+
+    # --- 5. EVALUATION TRIGGER (PLACE IT HERE) ---
+    # Only run this if we aren't in mock mode and there are results to check
+    if not mock and results:
+        try:
+            # Pass the results list to your evaluation utility
+            # It will compare these against the Ground Truth and ping Discord once.
+            await asyncio.to_thread(_etl.run_batch_evaluation, results)
+        except Exception as eval_exc:
+            # We use a broad catch here because we don't want an 
+            # evaluation failure to crash the actual ETL response.
+            logger.error(f"Evaluation reporting failed: {eval_exc}")
 
     # 5. FINAL RESPONSE
     succeeded = sum(1 for r in results if r.get("success"))
