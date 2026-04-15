@@ -206,56 +206,36 @@ async def ocr_node(image_path, run_id, user_id):
 # ---------------------------------------------------------------------------
 # Discord LOGS
 # ---------------------------------------------------------------------------
-def _hydrate_ground_truth_from_env():
-    """
-    Decodes ground truth data from an environment variable if no physical directory exists.
-    Expected format: A Base64 encoded JSON string: {"filename.json": [...content...]}
-    """
-    blob = os.getenv("GROUND_TRUTH_JSON_BLOB")
-    if not blob:
-        return None
-
-    temp_gt_dir = Path("/tmp/ground_truth")
-    temp_gt_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        # Decode and parse the blob
-        decoded_data = json.loads(base64.b64decode(blob).decode('utf-8'))
-        for filename, content in decoded_data.items():
-            file_path = temp_gt_dir / filename
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(content, f)
-        
-        print(f"Hydrated {len(decoded_data)} ground truth files from environment.")
-        return temp_gt_dir
-    except Exception as e:
-        print(f"Error hydrating ground truth blob: {e}")
-        return None
-
-
 def run_batch_evaluation(results: list[dict]):
     """
-    The main entry point called by app.py.
-    Ties together hydration, scoring, and Discord.
+    Evaluation bridge using a persistent Railway Volume.
     """
+    # 1. Point to the real directory in your Volume
+    # No more hydrate_ground_truth_from_env()!
+    gt_dir = config.GROUND_TRUTH_DIR 
 
-    # 1. Prepare the GT files from the environment variable
-    gt_path = _hydrate_ground_truth_from_env()
-    if not gt_path:
-        print("Evaluation skipped: GROUND_TRUTH_JSON_BLOB not set.")
+    # 2. Safety check: Does the Volume actually have files?
+    if not gt_dir.exists() or not any(gt_dir.glob("*.json")):
+        print(f"EVAL: Ground truth directory {gt_dir} is empty or missing.")
         return
 
-    # 2. Use your existing logic to calculate the scores
-    # Note: d is the output directory where _process_one just saved the JSONs
-    # We grab the most recent provider-model directory created
-    output_base = config.OUTPUT_DIR
-    provider_dirs = [d for d in sorted(output_base.iterdir()) if d.is_dir()]
-    target_dir = provider_dirs[-1] if provider_dirs else output_base
+    # 3. Find the output to score
+    # We look for the model folder created during the ETL process
+    if not config.OUTPUT_DIR.exists():
+        print("EVAL: No outputs found to evaluate.")
+        return
+        
+    # Get the most recently updated subdirectory (e.g., 'openrouter-gpt-4o')
+    all_dirs = [d for d in config.OUTPUT_DIR.iterdir() if d.is_dir()]
+    target_dir = max(all_dirs, key=os.path.getmtime) if all_dirs else config.OUTPUT_DIR
 
-    # Call your logic!
-    header, rows, scores = rpt.compute_eval(target_dir, gt_dir=gt_path)
+    print(f"EVAL: Comparing {target_dir.name} vs Ground Truth")
 
-    # 3. Send the summary to Discord
+    # 4. Run the scoring engine
+    # (Using the same _compute_eval function you already wrote)
+    header, rows, scores = rpt.compute_eval(target_dir, gt_dir=gt_dir)
+
+    # 5. Discord Summary
     if scores:
         avg = sum(scores) / len(scores)
         rpt.send_discord_summary(avg, len(scores), rows)
@@ -593,10 +573,10 @@ if _RT_AVAILABLE:
     @rt.function_node
     async def receipt_pipeline(ctx: OcrInput) -> StructureOutput:
         """Single-node pipeline: OCR → LLM/geocode in one Railtracks step."""
-        image_path = Path(ctx.image_path)        
+        image_path = Path(ctx.image_path)
         
         # 1. OCR Step
-        ocr_text = await throttled_ocr(image_path, image_path.name, ctx.run_id, ctx.user_name, True)
+        ocr_text = await throttled_ocr(image_path, ctx.display_name, ctx.run_id, ctx.user_name, True)
         if ocr_text is None:
             print(f"ERROR: throttled_ocr returned None for {image_path.name}")
             return 
@@ -608,7 +588,7 @@ if _RT_AVAILABLE:
                 f"input={len(ocr_text)} chars"
             )
             result, total_pt, total_ct, total_cost = await asyncio.to_thread(
-                structure, ocr_text, image_path.name, ctx.user_name,
+                structure, ocr_text, ctx.display_name, ctx.user_name,
                 ctx.model, ctx.run_id, ctx.provider
             )
 
@@ -770,11 +750,15 @@ def extract(image_data: "Path | bytes", display_name: str, user_name: str, model
             # 1. Invoke the pipeline (which now runs validation internally)
             result = flow.invoke(OcrInput(
                 image_path=image_to_process,
+                display_name=display_name,
                 run_id=run_id,
                 user_name=user_name,
                 model=model,
                 provider=resolved_provider,
             ))
+
+            if isinstance(image_data, bytes) and os.path.exists(image_to_process):
+                os.remove(image_to_process)
             
             # 2. Convert the cleaned JSON string back to a dict
             data = json.loads(result.receipt_json)

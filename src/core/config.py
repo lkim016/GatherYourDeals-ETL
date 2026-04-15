@@ -46,11 +46,13 @@ GYD_ACCESS_TOKEN = os.getenv("GYD_ACCESS_TOKEN", "")
 # --- Paths (Using ROOT_DIR ensures these work anywhere) ---
 # --- Paths (Anchored to ROOT_DIR ensures these work anywhere) ---
 # ROOT_DIR is already Path(__file__).resolve().parent.parent (which is GatherYourDeals-ETL/)
+OCR_CACHE_DIR    = ROOT_DIR / "ocr_cache"
+
+DATA_DIR = Path("/data") # This matches your Railway Mount Path
+GROUND_TRUTH_DIR = DATA_DIR / "ground_truth"
 OUTPUT_DIR       = ROOT_DIR / "output"
 LOGS_DIR         = ROOT_DIR / "logs"
 REPORTS_DIR      = ROOT_DIR / "reports"
-GROUND_TRUTH_DIR = ROOT_DIR / "ground_truth"
-OCR_CACHE_DIR    = ROOT_DIR / "ocr_cache"
 
 # 3. Add this loop to actually CREATE the folders so the script doesn't crash
 for _path in [OUTPUT_DIR, LOGS_DIR, REPORTS_DIR, OCR_CACHE_DIR]:
