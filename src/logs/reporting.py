@@ -361,6 +361,7 @@ def _compute_eval(output_dir: Path, gt_dir: Path = config.GROUND_TRUTH_DIR):
         # 4. ROBUST PARSING (The "List vs Dict" fix)
         try:
             raw_data = json.loads(out_text)
+            print(f"DEBUG EVAL: Processing {stem} | Data Type: {type(raw_data)}")
             
             # Extract the items list regardless of whether the file is Option 1 or Option 2
             if isinstance(raw_data, dict) and "items" in raw_data:

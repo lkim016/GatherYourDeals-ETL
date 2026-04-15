@@ -229,7 +229,20 @@ def run_batch_evaluation(results: list[dict]):
     all_dirs = [d for d in config.OUTPUT_DIR.iterdir() if d.is_dir()]
     target_dir = max(all_dirs, key=os.path.getmtime) if all_dirs else config.OUTPUT_DIR
 
-    print(f"EVAL: Comparing {target_dir.name} vs Ground Truth")
+    if not target_dir:
+        print("EVAL: No outputs found to evaluate.")
+        return
+
+    print(f"📊 EVAL: Comparing {target_dir.name} vs Ground Truth")
+
+    # --- CLEANUP STEP ---
+    # Use target_dir directly to find and remove "Poison Pills"
+    for f in target_dir.glob("*.json"):
+        content = f.read_text(encoding="utf-8").strip()
+        # Delete if it's the old list format or if it's empty
+        if content.startswith("[") or not content:
+            print(f"EVAL: Removing stale file {f.name}")
+            f.unlink()
 
     # 4. Run the scoring engine
     # (Using the same _compute_eval function you already wrote)
