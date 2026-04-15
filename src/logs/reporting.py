@@ -359,27 +359,35 @@ def _compute_eval(output_dir: Path, gt_dir: Path = config.GROUND_TRUTH_DIR):
         out_text = out_path.read_text(encoding="utf-8").strip()
         
         # 4. ROBUST PARSING (The "List vs Dict" fix)
-        raw_data = json.loads(out_text)
-        
-        # Extract the items list regardless of whether the file is Option 1 or Option 2
-        if isinstance(raw_data, dict) and "items" in raw_data:
-            out_list = raw_data["items"]
-        elif isinstance(raw_data, list):
-            out_list = raw_data
-        else:
-            out_list = [raw_data] # Fallback for single-object files
+        try:
+            raw_data = json.loads(out_text)
             
-        s = _score_receipt(out_list, tru_list)
-        scores.append(s["overall"])
-        rows.append((
-            stem + ".jpg", gt_n,
-            check(s["storeName"]), check(s["purchaseDate"]),
-            check(s["latitude"]),  check(s["longitude"]),
-            check(s["totalItems"]),
-            s["item_name_match"], s["item_price_match"], s["item_amount_match"],
-            f"{s['overall']}%",
-        ))
+            # Extract the items list regardless of whether the file is Option 1 or Option 2
+            if isinstance(raw_data, dict) and "items" in raw_data:
+                out_list = raw_data["items"]
+            elif isinstance(raw_data, list):
+                out_list = raw_data
+            else:
+                out_list = [raw_data] # Fallback for single-object files
+            
+            s = _score_receipt(out_list, tru_list)
+
+            scores.append(s["overall"])
+            rows.append((
+                stem + ".jpg", gt_n,
+                check(s["storeName"]), check(s["purchaseDate"]),
+                check(s["latitude"]),  check(s["longitude"]),
+                check(s["totalItems"]),
+                s["item_name_match"], s["item_price_match"], s["item_amount_match"],
+                f"{s['overall']}%",
+            ))
+        
+        except Exception as e:
+            print(f"Error processing {stem}.json: {e}")
+            continue # Skip the bad file and keep going!
+
     return header, rows, scores
+        
 
 
 def eval_receipts(output_dir: Path = config.OUTPUT_DIR, gt_dir: Path = config.GROUND_TRUTH_DIR):
