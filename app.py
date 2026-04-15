@@ -251,6 +251,7 @@ async def _collect_folder_files(source: str, folder_id: str) -> list[tuple]:
     """Uses your existing functions to get images from a folder."""
     file_pairs = []
     
+    print(f"\n[etl] batch/gdown — attempting public download for folder {folder_id}\n")
     # 1. Attempt gdown (Public)
     try:
         # Calls your _download_folder_gdown function
@@ -266,6 +267,7 @@ async def _collect_folder_files(source: str, folder_id: str) -> list[tuple]:
             service = await asyncio.to_thread(_build_drive_service)
             images = await asyncio.to_thread(_list_drive_images, service, folder_id)
             
+            print(f"  [oauth] {len(images)} image(s) found\n")
             for file in images:
                 try:
                     # Calls your _download_drive_file function
@@ -304,7 +306,7 @@ async def _collect_single_file(source: str) -> tuple[bytes | None, str | None]:
                 image_bytes = Path(output_path).read_bytes()
                 os.remove(output_path)
         except Exception as e:
-            print(f"  [gdown] single file failed: {e}")
+            logger.warning(f"gdown failed for single file: {e}")
 
         # Fallback to OAuth if gdown fails and creds exist
         if not image_bytes and bool(_GOOGLE_CLIENT_ID and _GOOGLE_REFRESH_TOKEN):
@@ -312,7 +314,7 @@ async def _collect_single_file(source: str) -> tuple[bytes | None, str | None]:
                 service = await asyncio.to_thread(_build_drive_service)
                 image_bytes = await asyncio.to_thread(_download_drive_file, service, file_id, display_name)
             except Exception as e:
-                print(f"  [oauth] fallback failed: {e}")
+                logger.error(f"OAuth fallback failed: {e}")
     else:
         # --- STANDARD URL / LOCAL PATH ---
         try:
@@ -368,10 +370,27 @@ async def _process_one(
             json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
+        # --- PRE-UPLOAD DEBUG ---
+        print(f"DEBUG: [Upload] Preparing payload for {display_name}")
+        print(f"DEBUG: [Upload] Rows to send: {len(data.get('items', []))}")
+        if data.get("items"):
+            # Check the first item to ensure "storeName" and "purchaseDate" are actually there
+            print(f"DEBUG: [Upload] Sample Row: {data['items'][0]}")
+
         data["imageName"] = display_name
         try:
             created = _etl.upload(data, run_id, token=jwt_token, refresh_token=refresh_token)
+            print(f"  ✓  [Upload] Success: {len(created)} records created") # Success log
         except Exception as exc:
+            # --- CRITICAL FAILURE DEBUG ---
+            import traceback
+            print(f"\n[ERROR] UPLOAD FAILED for {display_name}")
+            print(f"Exception Type: {type(exc).__name__}")
+            print(f"Exception Detail: {str(exc)}")
+            
+            # This prints the EXACT line in the upload function that failed
+            traceback.print_exc()
+
             total_ms = (time.monotonic() - pipeline_start) * 1000
             log_pipeline(run_id, display_name, _DEFAULT_USER, provider, model,
                          total_ms, False, f"upload: {exc}")
@@ -447,6 +466,7 @@ async def run_etl(
     Set `mock=true` to skip real API calls and simulate pipeline latency instead
     (zero cost — for Experiment 1 Phase B load testing).
     """
+    logger.info(f"Checking source: {source}")
     # 1. SETUP & AUTH
     auth_header = request.headers.get("Authorization", "")
     jwt_token = auth_header.removeprefix("Bearer ").strip() or None
@@ -455,8 +475,6 @@ async def run_etl(
 
     if not source:
         return JSONResponse(status_code=400, content={"success": False, "message": "Source required"})
-
-    logger.info(f"Checking source: {source}")
 
     # This list will hold (image_bytes, file_name) regardless of source
     file_pairs: list[tuple] = []
@@ -467,6 +485,8 @@ async def run_etl(
     if folder_match:
         # --- BATCH FOLDER LOGIC ---
         folder_id = folder_match.group(1)
+        
+        print(f"DEBUG: Extracted Folder ID: {folder_id}") # RESTORED
         # Result: file_pairs is populated with multiple images
         file_pairs = await _collect_folder_files(source, folder_id) 
     else:
@@ -498,6 +518,7 @@ async def run_etl(
 
     async def _process_wrapper(entry):
         if len(entry) == 3: # Handle download errors
+            print(f"  ✗  {entry[1]} — Download failed: {entry[2]}")
             return {"file": entry[1], "success": False, "message": entry[2]}
         
         image_bytes, file_name = entry
