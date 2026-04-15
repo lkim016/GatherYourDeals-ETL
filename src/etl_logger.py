@@ -59,7 +59,7 @@ def log_llm(trace_id, image_name, user_id, provider, model,
     prompt_path  — which system prompt variant fired:
                    "direct", "cot", "direct+costco", "cot+costco"
     """
-    _log({
+    log_data = {
         "time":                datetime.now(timezone.utc).isoformat(),
         "level":               "INFO" if success else "ERROR",
         "service":             "etl",
@@ -89,7 +89,15 @@ def log_llm(trace_id, image_name, user_id, provider, model,
         "cost": {
             "total_usd": round(cost_usd, 8),
         },
-    })
+    }
+
+    # 2. Call your internal logger (if it exists)
+    _log(log_data)
+
+    # 3. ADD THIS LINE:
+    return log_data
+
+
 
 
 def log_pipeline(trace_id, image_name, user_id, provider, model,
