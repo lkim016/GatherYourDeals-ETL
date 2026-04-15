@@ -408,8 +408,8 @@ async def _process_one(
             "success": True, 
             "message": "ETL completed successfully", 
             "registry": registry,
-            "provider": provider,   # <--- ADD THIS
-            "model": model          # <--- ADD THIS
+            "provider": provider,
+            "model": model
         }
 
     except Exception as exc:

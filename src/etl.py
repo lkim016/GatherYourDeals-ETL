@@ -751,8 +751,18 @@ def extract(image_data: "Path | bytes", display_name: str, user_name: str, model
         # Assuming rt and receipt_pipeline are imported/available
         flow = rt.Flow(name="receipt_etl", entry_point=receipt_pipeline)
         
-        # Note: Ensure you pass the correct arguments to your specific pipeline
-        result = flow.invoke(image_path=image_to_process, model=model, provider=resolved_provider)
+        # Wrap the data in the OcrInput model before passing it to the flow
+        input_data = OcrInput(
+            image_path=image_to_process,
+            display_name=display_name,
+            run_id=run_id,
+            user_name=user_name,
+            model=model,
+            provider=resolved_provider
+        )
+
+        # Pass the object as the first and only argument
+        result = flow.invoke(input_data)
 
         # 3. Build the response data
         data = json.loads(result.receipt_json)
