@@ -771,7 +771,8 @@ def extract(image_data: "Path | bytes", display_name: str, user_name: str, model
         
         # IMPORTANT: Capture cost for the logger in app.py
         # Railtracks usually stores metadata in the result object
-        data["llm_cost_usd"] = getattr(result, "cost", 0.0) 
+        cost_dict = getattr(result, "cost", {"total_usd": 0.0})
+        data["llm_cost_usd"] = cost_dict.get("total_usd", 0.0) # Now it's a float!
         
         return data
 
