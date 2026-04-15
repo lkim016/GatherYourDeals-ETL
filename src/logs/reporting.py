@@ -24,6 +24,7 @@ from pathlib import Path
 from src.core import config
 import requests
 import os
+from difflib import SequenceMatcher
 
 # ---------------------------------------------------------------------------
 # Paths — must match etl.py
@@ -74,6 +75,50 @@ def _send_discord_summary(avg_score, total_receipts, rows):
     except Exception as e:
         print(f"ERROR: Failed to send Discord notification: {e}")
 
+def normalize_price(price_val):
+    if price_val is None: return ""
+    return re.sub(r'[^\d.]', '', str(price_val))
+
+def similarity(a, b):
+    """Fuzzy match helper for store names."""
+    if not a or not b: return 0.0
+    return SequenceMatcher(None, str(a).lower(), str(b).lower()).ratio()
+
+def calculate_match_score(output, gt):
+    score = 0
+    # Date (50 pts)
+    if output.get("purchaseDate") == gt.get("purchaseDate"):
+        score += 50
+    
+    # Price (40 pts)
+    out_total = normalize_price(output.get("total"))
+    gt_total = normalize_price(gt.get("total"))
+    if out_total and gt_total and out_total == gt_total:
+        score += 40
+        
+    # Name (30 pts max)
+    score += (similarity(output.get("storeName", ""), gt.get("storeName", "")) * 30)
+    return score
+
+def _score_single_pair(pred_path: Path, gt_path: Path):
+    pred = json.loads(pred_path.read_text())
+    gt = json.loads(gt_path.read_text())
+    
+    # 1. Define what fields you want to check
+    fields_to_check = ["storeName", "purchaseDate", "total", "tax"]
+    matches = 0
+    
+    # 2. Basic field-level comparison
+    for field in fields_to_check:
+        if str(pred.get(field)).strip().lower() == str(gt.get(field)).strip().lower():
+            matches += 1
+            
+    # 3. Calculate percentage based on those fields
+    # (Or add logic here to compare the 'items' list for more depth)
+    score = (matches / len(fields_to_check)) * 100
+    
+    # Now 'score' is defined, and the underline will disappear!
+    return score, {"name": gt_path.stem, "score": round(score, 2)}
 
 def run_batch_evaluation(results: list[dict]):
     """
@@ -104,21 +149,47 @@ def run_batch_evaluation(results: list[dict]):
     if not target_dir.exists():
         print(f"EVAL: Target folder missing at {target_dir}")
         return
+    
+    # 1. Pre-load Ground Truths into memory (The "Vault")
+    gt_vault = []
+    for gt_file in gt_dir.glob("*.json"):
+        try:
+            gt_vault.append({
+                "path": gt_file,
+                "data": json.loads(gt_file.read_text())
+            })
+        except Exception: continue
 
-    # 4. Run Scoring Engine
-    try:
-        # This calls your existing logic that iterates over JSONs
-        header, rows, scores = _compute_eval(target_dir, gt_dir=gt_dir)
+    all_scores = []
+    summary_rows = []
 
-        if scores:
-            avg_score = sum(scores) / len(scores)
-            _send_discord_summary(avg_score, len(scores), rows)
-            print(f"Eval Success: {avg_score:.1f}%")
-        else:
-            print("⚠️ EVAL: No matching filenames found between outputs and ground truth.")
+    # 2. Iterate through generated outputs and match them
+    for output_file in target_dir.glob("*.json"):
+        try:
+            output_data = json.loads(output_file.read_text())
             
-    except Exception as e:
-        print(f"Evaluation engine failed: {e}")
+            # Find the best GT match using your scoring function
+            best_match = max(gt_vault, key=lambda x: calculate_match_score(output_data, x["data"]))
+            winning_score = calculate_match_score(output_data, best_match["data"])
+
+            if winning_score > 60:
+                print(f"✅ Match Found: {output_file.name} -> {best_match['path'].name}")
+                
+                # 3. SCORE THE MATCH IMMEDIATELY
+                # Instead of passing directories, pass the specific file objects
+                row_score, row_data = _score_single_pair(output_file, best_match['path'])
+                all_scores.append(row_score)
+                summary_rows.append(row_data)
+            else:
+                print(f"⚠️ No reliable GT match for {output_file.name} (Score: {winning_score})")
+        except Exception as e:
+            print(f"Error processing {output_file.name}: {e}")
+
+    # 4. Final Reporting
+    if all_scores:
+        avg = sum(all_scores) / len(all_scores)
+        _send_discord_summary(avg, len(all_scores), summary_rows)
+        print(f"Done. Average Accuracy: {avg:.1f}%")
 
 # ---------------------------------------------------------------------------
 # Log loader
