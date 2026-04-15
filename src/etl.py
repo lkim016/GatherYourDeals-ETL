@@ -103,7 +103,7 @@ _OCR_SEMAPHORE = None
 def get_ocr_sem():
     global _OCR_SEMAPHORE
     if _OCR_SEMAPHORE is None:
-        _OCR_SEMAPHORE = asyncio.Semaphore(1)
+        _OCR_SEMAPHORE = asyncio.Semaphore(14)
     return _OCR_SEMAPHORE
 
 # Define the global limit for LLM concurrency
@@ -113,7 +113,7 @@ _LLM_SEMAPHORE = None
 def get_llm_sem():
     global _LLM_SEMAPHORE
     if _LLM_SEMAPHORE is None:
-        _LLM_SEMAPHORE = asyncio.Semaphore(1)
+        _LLM_SEMAPHORE = asyncio.Semaphore(6)
     return _LLM_SEMAPHORE
 
 # Keep geocoding tight - most APIs hate more than 1 or 2 at the exact same time
@@ -872,6 +872,10 @@ def _registry_save(image_stem: str, ids: list[str]) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 def main():
+    import sys
+    sys.stderr.write("\n\n!!! MAIN HAS ENTERED THE CHAT !!!\n\n")
+    sys.stderr.flush()
+    
     p = argparse.ArgumentParser(description="GatherYourDeals receipt ETL (ADI + LLM)")
     p.add_argument("path",        nargs="?", help="Image file or directory")
     p.add_argument("--user",      default="unknown", help="Username for JSON metadata")
@@ -915,6 +919,7 @@ def main():
     do_upload = not args.no_upload and bool(config.GYD_SERVER_URL)
     if not do_upload and not args.no_upload:
         print("[INFO] GYD_SERVER_URL not set — extract-only mode.")
+
 
     errors = 0
     for img in images:
