@@ -752,7 +752,7 @@ def extract(image_data: "Path | bytes", display_name: str, user_name: str, model
         flow = rt.Flow(name="receipt_etl", entry_point=receipt_pipeline)
         
         # Note: Ensure you pass the correct arguments to your specific pipeline
-        result = flow.invoke(input_path=image_to_process, model=model, provider=resolved_provider)
+        result = flow.invoke(image_path=image_to_process, model=model, provider=resolved_provider)
 
         # 3. Build the response data
         data = json.loads(result.receipt_json)
