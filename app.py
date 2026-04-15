@@ -376,8 +376,9 @@ async def _process_one(
         model_slug = model.split("/")[-1].lower()
         out_dir = config.OUTPUT_DIR / f"{provider}-{model_slug}"
         out_dir.mkdir(parents=True, exist_ok=True)
+        # Use 'data' here, not 'rows'
         (out_dir / (Path(display_name).stem + ".json")).write_text(
-            json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8"
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
         # 3. UPLOAD
