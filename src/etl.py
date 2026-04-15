@@ -928,6 +928,12 @@ def main():
             
             rows = data["items"]
 
+            # --- AUDIT PRINT (The only thing you need for debugging) ---
+            if rows:
+                first_item = rows[0]
+                print(f"DEBUG Check: First item has store={first_item.get('storeName')}, date={first_item.get('purchaseDate')}")
+            # -----------------------------------------------------------
+            
             model_slug = resolved_model.split("/")[-1].lower()
             provider_out_dir = config.OUTPUT_DIR / f"{args.provider}-{model_slug}"
             provider_out_dir.mkdir(parents=True, exist_ok=True)
