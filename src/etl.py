@@ -872,10 +872,6 @@ def _registry_save(image_stem: str, ids: list[str]) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 def main():
-    import sys
-    sys.stderr.write("\n\n!!! MAIN HAS ENTERED THE CHAT !!!\n\n")
-    sys.stderr.flush()
-    
     p = argparse.ArgumentParser(description="GatherYourDeals receipt ETL (ADI + LLM)")
     p.add_argument("path",        nargs="?", help="Image file or directory")
     p.add_argument("--user",      default="unknown", help="Username for JSON metadata")

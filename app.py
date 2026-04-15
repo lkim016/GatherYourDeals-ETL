@@ -247,6 +247,84 @@ def _download_drive_file(service, file_id: str, file_name: str) -> bytes:
     return data
 
 
+async def _collect_folder_files(source: str, folder_id: str) -> list[tuple]:
+    """Uses your existing functions to get images from a folder."""
+    file_pairs = []
+    
+    # 1. Attempt gdown (Public)
+    try:
+        # Calls your _download_folder_gdown function
+        file_pairs = await asyncio.to_thread(_download_folder_gdown, source)
+    except Exception as exc:
+        print(f"  [gdown] public download failed: {exc}")
+
+    # 2. Fallback to OAuth (Private) if gdown returned nothing
+    if not file_pairs:
+        oauth_configured = bool(_GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET and _GOOGLE_REFRESH_TOKEN)
+        if oauth_configured:
+            print(f"  [gdown] no files — falling back to OAuth SDK...")
+            service = await asyncio.to_thread(_build_drive_service)
+            images = await asyncio.to_thread(_list_drive_images, service, folder_id)
+            
+            for file in images:
+                try:
+                    # Calls your _download_drive_file function
+                    image_bytes = await asyncio.to_thread(
+                        _download_drive_file, service, file["id"], file["name"]
+                    )
+                    file_pairs.append((image_bytes, file["name"]))
+                except Exception as exc:
+                    # Handle individual file download failures
+                    file_pairs.append((None, file["name"], str(exc)))
+                    
+    return file_pairs
+
+async def _collect_single_file(source: str) -> tuple[bytes | None, str | None]:
+    """
+    Resolves a single source (URL, GDrive File, or Local) into bytes and a name.
+    """
+    _GDRIVE_FILE_RE = re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)")
+    file_match = _GDRIVE_FILE_RE.search(source)
+    
+    image_bytes = None
+    display_name = None
+
+    if file_match:
+        # --- GOOGLE DRIVE FILE PATH ---
+        file_id = file_match.group(1)
+        clean_url = f"https://drive.google.com/uc?id={file_id}"
+        display_name = f"gdrive_{file_id[:6]}.jpg"
+
+        # Try gdown first
+        try:
+            output_path = await asyncio.to_thread(
+                gdown.download, clean_url, quiet=True, use_cookies=False
+            )
+            if output_path and os.path.exists(output_path):
+                image_bytes = Path(output_path).read_bytes()
+                os.remove(output_path)
+        except Exception as e:
+            print(f"  [gdown] single file failed: {e}")
+
+        # Fallback to OAuth if gdown fails and creds exist
+        if not image_bytes and bool(_GOOGLE_CLIENT_ID and _GOOGLE_REFRESH_TOKEN):
+            try:
+                service = await asyncio.to_thread(_build_drive_service)
+                image_bytes = await asyncio.to_thread(_download_drive_file, service, file_id, display_name)
+            except Exception as e:
+                print(f"  [oauth] fallback failed: {e}")
+    else:
+        # --- STANDARD URL / LOCAL PATH ---
+        try:
+            # Calls your existing _resolve_source function
+            image_bytes, display_name = await asyncio.to_thread(_resolve_source, source)
+            if hasattr(image_bytes, "read_bytes"):
+                image_bytes = image_bytes.read_bytes()
+        except Exception as e:
+            print(f"  [resolve] failed: {e}")
+
+    return image_bytes, display_name
+
 # ---------------------------------------------------------------------------
 # Single-image pipeline (shared by single and batch paths)
 # ---------------------------------------------------------------------------
@@ -280,6 +358,9 @@ async def _process_one(
             return {"success": False, "message": f"Failed to parse data from source: {exc}"}
 
         rows = _etl.flatten_receipt(data)
+        
+        data["items"] = rows
+
         model_slug = model.split("/")[-1].lower()
         out_dir = config.OUTPUT_DIR / f"{provider}-{model_slug}"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -366,194 +447,77 @@ async def run_etl(
     Set `mock=true` to skip real API calls and simulate pipeline latency instead
     (zero cost — for Experiment 1 Phase B load testing).
     """
-    # Extract JWT from Authorization header — passed by Yimeng's frontend on
-    # behalf of the logged-in user.  Falls back to GYD_ACCESS_TOKEN env var
-    # (used for CLI runs and local testing).
+    # 1. SETUP & AUTH
     auth_header = request.headers.get("Authorization", "")
     jwt_token = auth_header.removeprefix("Bearer ").strip() or None
     refresh_token = body.refresh_token or None
-
     source = (body.source or "").strip()
-    if not source:
-        return JSONResponse(
-            status_code=400,
-            content={"success": False, "message": "source address must not be empty"},
-        )
 
-    # --- Detect Google Drive folder ----------------------------------------
-    # Inside your function:
+    if not source:
+        return JSONResponse(status_code=400, content={"success": False, "message": "Source required"})
+
     logger.info(f"Checking source: {source}")
+
+    # This list will hold (image_bytes, file_name) regardless of source
+    file_pairs: list[tuple] = []
+
+    # 2. SOURCE RESOLUTION (The "Gathering" Phase)
     folder_match = _GDRIVE_FOLDER_RE.search(source)
-    # logger.info(f"Folder Match Result: {folder_match}")
     
     if folder_match:
+        # --- BATCH FOLDER LOGIC ---
         folder_id = folder_match.group(1)
-        print(f"DEBUG: Extracted Folder ID: {folder_id}")
-
-        # Mock batch: simulate one pipeline per image slot (use 4 as stand-in)
-        if mock:
-            for _ in range(4):
-                await _run_mock_pipeline()
-            return JSONResponse(
-                status_code=200,
-                content={"success": True, "message": "mock batch ETL completed (4 images simulated)", "results": []},
-            )
-
-        # Try gdown first (public folders, no auth required).
-        # Fall back to OAuth SDK if gdown finds no files (e.g. private folder)
-        # and credentials are configured.
-        oauth_configured = bool(_GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET and _GOOGLE_REFRESH_TOKEN)
-
-        file_pairs: list[tuple] = []
-        gdown_error: str | None = None
-
-        print(f"\n[etl] batch/gdown — attempting public download for folder {folder_id}\n")
-        try:
-            file_pairs = await asyncio.to_thread(_download_folder_gdown, source)
-        except Exception as exc:
-            gdown_error = str(exc)
-            print(f"  [gdown] failed: {gdown_error}")
-
-        if not file_pairs:
-            if oauth_configured:
-                print(f"  [gdown] no files retrieved — falling back to OAuth SDK\n")
-                try:
-                    service = await asyncio.to_thread(_build_drive_service)
-                    images = await asyncio.to_thread(_list_drive_images, service, folder_id)
-                except RuntimeError as exc:
-                    return JSONResponse(
-                        status_code=400,
-                        content={"success": False, "message": str(exc)},
-                    )
-
-                print(f"  [oauth] {len(images)} image(s) found\n")
-                for file in images:
-                    try:
-                        image_bytes = await asyncio.to_thread(
-                            _download_drive_file, service, file["id"], file["name"]
-                        )
-                        file_pairs.append((image_bytes, file["name"]))
-                    except Exception as exc:
-                        file_pairs.append((None, file["name"], str(exc)))
-            else:
-                msg = (
-                    f"gdown could not retrieve files ({gdown_error}). "
-                    "If the folder is private, set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, "
-                    "and GOOGLE_REFRESH_TOKEN in .env to enable OAuth fallback."
-                ) if gdown_error else "No image files found in folder."
-                return JSONResponse(
-                    status_code=400 if gdown_error else 200,
-                    content={"success": not gdown_error, "message": msg, "results": []},
-                )
-
-        # 1. Setup the tools first
-        _ADI_SEM = asyncio.Semaphore(5)
-
-        async def _process_one_limited(entry):
-            if len(entry) == 3: # Handle download errors
-                return {"file": entry[1], "success": False, "message": entry[2]}
-                
-            image_bytes, file_name = entry
-            async with _ADI_SEM:
-                result = await _process_one(image_bytes, file_name, jwt_token, refresh_token)
-            
-            status = "✓" if result["success"] else "✗"
-            print(f"  {status}  {file_name} — {result['message']}")
-            return {"file": file_name, **result}
-
-        # 2. SCHEDULING: Execute all tasks concurrently - let the Semaphore throttle them to 14 at a time
-        tasks = [_process_one_limited(entry) for entry in file_pairs]
-        results = await asyncio.gather(*tasks)
-
-        # 3. Final summary
-        succeeded = sum(1 for r in results if r.get("success"))
-        total = len(results)
-        return JSONResponse(
-            status_code=200,
-            content={
-                "success": succeeded == total and total > 0,
-                "message": f"{succeeded}/{total} succeeded",
-                "results": results,
-            },
-        )
-
-    # --- Single image -------------------------------------------------------
-
-    # --- Mock mode: no real API calls, just sleep through simulated latency --
-    if mock:
-        await _run_mock_pipeline()
-        return JSONResponse(
-            status_code=200,
-            content={"success": True, "message": "mock ETL completed"},
-        )
-
-    
-    # 1. Prepare configuration
-    oauth_configured = bool(_GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET and _GOOGLE_REFRESH_TOKEN)
-    _GDRIVE_FILE_RE = re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)")
-    file_match = _GDRIVE_FILE_RE.search(source)
-
-    image_bytes = None
-    display_name = None
-
-    # 2. Logic Branching: Google Drive vs. Everything Else
-    if file_match:
-        # GOOGLE DRIVE PATH
-        file_id = file_match.group(1)
-        # Using the direct download link is more reliable than the /view link
-        clean_url = f"https://drive.google.com/uc?id={file_id}" 
-        display_name = f"gdrive_{file_id[:6]}.jpg"
-
-        # Try gdown first (handles "virus scan" warnings)
-        try:
-            # Pass clean_url instead of just file_id for better compatibility
-            output_path = await asyncio.to_thread(
-                gdown.download, 
-                clean_url, 
-                quiet=True, 
-                use_cookies=False
-            )
-            
-            if output_path and os.path.exists(output_path):
-                image_bytes = Path(output_path).read_bytes()
-                os.remove(output_path) 
-        except Exception as e:
-            logger.warning(f"gdown failed for single file: {e}")
-
-        # Fallback to OAuth if gdown failed
-        if not image_bytes and oauth_configured:
-            try:
-                service = await asyncio.to_thread(_build_drive_service)
-                image_bytes = await asyncio.to_thread(_download_drive_file, service, file_id, display_name)
-            except Exception as e:
-                logger.error(f"OAuth fallback failed: {e}")
+        # Result: file_pairs is populated with multiple images
+        file_pairs = await _collect_folder_files(source, folder_id) 
     else:
-        # STANDARD PATH (URLs, S3, or Local Files)
-        try:
-            # Let _resolve_source handle standard HTTP/local logic
-            image_bytes, display_name = await asyncio.to_thread(_resolve_source, source)
-            
-            # Ensure we have bytes if it returned a Path object
-            if hasattr(image_bytes, "read_bytes"):
-                image_bytes = image_bytes.read_bytes()
-        except (ValueError, FileNotFoundError) as exc:
-            return JSONResponse(status_code=400, content={"success": False, "message": str(exc)})
+        # --- SINGLE IMAGE LOGIC ---
+        # Result: file_pairs is populated with exactly one image
+        img_bytes, name = await _collect_single_file(source)
+        if img_bytes:
+            file_pairs.append((img_bytes, name))
+        else:
+            # Optional: if the helper couldn't get the file, 
+            # we return an error early.
+            return JSONResponse(
+                status_code=400, 
+                content={"success": False, "message": f"Could not retrieve file: {source}"}
+            )
 
-    # 3. Final Validation & Handoff
-    if not image_bytes:
-         return JSONResponse(
-             status_code=400, 
-             content={"success": False, "message": "Failed to retrieve image data from source."}
-         )
+    # 3. VALIDATION
+    if not file_pairs:
+        return JSONResponse(status_code=400, content={"success": False, "message": "No images found"})
 
-    # Process guaranteed binary data
-    result = await _process_one(image_bytes, display_name, jwt_token, refresh_token)
+    # 4. UNIFIED EXECUTION (The DRY Phase)
+    if mock:
+        for _ in range(len(file_pairs)):
+            await _run_mock_pipeline()
+        return JSONResponse(content={"success": True, "message": f"Mocked {len(file_pairs)} images"})
 
-    logger.info(f"ETL Result: {result}")
-    # If it's technically successful but fails the quality gate, 
-    # you might want to change the status code.
-    status_code = 200 if (result["success"] and result.get("is_valid", True)) else 422
-    return JSONResponse(status_code=status_code, content=result)
+    # Throttler
+    _ADI_SEM = asyncio.Semaphore(5)
+
+    async def _process_wrapper(entry):
+        if len(entry) == 3: # Handle download errors
+            return {"file": entry[1], "success": False, "message": entry[2]}
+        
+        image_bytes, file_name = entry
+        async with _ADI_SEM:
+            # This calls your _process_one (the function we fixed with data["items"] = rows)
+            return {"file": file_name, **(await _process_one(image_bytes, file_name, jwt_token, refresh_token))}
+
+    # Run everything in the list
+    results = await asyncio.gather(*[_process_wrapper(e) for e in file_pairs])
+
+    # 5. FINAL RESPONSE
+    succeeded = sum(1 for r in results if r.get("success"))
+    return JSONResponse(
+        status_code=200 if succeeded > 0 else 422,
+        content={
+            "success": succeeded == len(results),
+            "message": f"{succeeded}/{len(results)} succeeded",
+            "results": results if len(results) > 1 else results[0] # Return list for batch, dict for single
+        }
+    )
 
 
 @app.get("/health")
