@@ -330,6 +330,11 @@ def _compute_eval(output_dir: Path, gt_dir: Path = config.GROUND_TRUTH_DIR):
               "Items", "Name match", "Price match", "Amount match", "Score")
     check = lambda v: "✓" if v else "✗"
 
+    # 1. Index all available output files by their 'image stem'
+    # This handles cases where the output filename isn't an exact match to the GT
+    all_out_files = list(output_dir.glob("*.json"))
+    
+    # 2. Get your Ground Truth files
     gt_files = {p.stem: p for p in gt_dir.glob("*.json")} if gt_dir.exists() else {}
     rows, scores = [], []
 
@@ -342,18 +347,28 @@ def _compute_eval(output_dir: Path, gt_dir: Path = config.GROUND_TRUTH_DIR):
             tru_list = [tru_list]
         gt_n = len(tru_list)
 
-        out_path = output_dir / (stem + ".json")
-        if not out_path.exists():
-            rows.append((stem + ".jpg", gt_n, "—", "—", "—", "—", "—", "—", "—", "—", "no output"))
-            continue
-        out_text = out_path.read_text(encoding="utf-8").strip()
-        if not out_text:
-            rows.append((stem + ".jpg", gt_n, "—", "—", "—", "—", "—", "—", "—", "—", "empty output"))
+        # 3. FLEXIBLE MATCHING:
+        # Look for a file that contains the stem, or matches it exactly
+        # This is how batch evaluators handle "gdrive_XYZ.json" vs "XYZ.json"
+        out_path = next((p for p in all_out_files if stem in p.name), None)
+
+        if not out_path or not out_path.exists():
+            rows.append((stem + ".jpg", gt_n, "—", "—", "—", "—", "—", "—", "—", "—", "missing"))
             continue
 
-        out_list = json.loads(out_text)
-        if not isinstance(out_list, list):
-            out_list = [out_list]
+        out_text = out_path.read_text(encoding="utf-8").strip()
+        
+        # 4. ROBUST PARSING (The "List vs Dict" fix)
+        raw_data = json.loads(out_text)
+        
+        # Extract the items list regardless of whether the file is Option 1 or Option 2
+        if isinstance(raw_data, dict) and "items" in raw_data:
+            out_list = raw_data["items"]
+        elif isinstance(raw_data, list):
+            out_list = raw_data
+        else:
+            out_list = [raw_data] # Fallback for single-object files
+            
         s = _score_receipt(out_list, tru_list)
         scores.append(s["overall"])
         rows.append((
