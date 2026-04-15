@@ -1,0 +1,56 @@
+[
+  {
+    "productName": "BEANITOS LIME",
+    "purchaseDate": "2021.07.16",
+    "price": "3.68USD",
+    "amount": "1",
+    "storeName": "Ingles",
+    "latitude": 32.9993,
+    "longitude": -82.4135
+  },
+  {
+    "productName": "BEANITOS SWT C",
+    "purchaseDate": "2021.07.16",
+    "price": "3.68USD",
+    "amount": "1",
+    "storeName": "Ingles",
+    "latitude": 32.9993,
+    "longitude": -82.4135
+  },
+  {
+    "productName": "SO DEL.STRB.YO",
+    "purchaseDate": "2021.07.16",
+    "price": "1.88USD",
+    "amount": "1",
+    "storeName": "Ingles",
+    "latitude": 32.9993,
+    "longitude": -82.4135
+  },
+  {
+    "productName": "SILK ALM.YG.PC",
+    "purchaseDate": "2021.07.16",
+    "price": "1.98USD",
+    "amount": "1",
+    "storeName": "Ingles",
+    "latitude": 32.9993,
+    "longitude": -82.4135
+  },
+  {
+    "productName": "LACOLOMBECOLOMPC",
+    "purchaseDate": "2021.07.16",
+    "price": "3.98USD",
+    "amount": "1",
+    "storeName": "Ingles",
+    "latitude": 32.9993,
+    "longitude": -82.4135
+  },
+  {
+    "productName": "PEANUTS SALTED",
+    "purchaseDate": "2021.07.16",
+    "price": "1.00USD",
+    "amount": "1",
+    "storeName": "Ingles",
+    "latitude": 32.9993,
+    "longitude": -82.4135
+  }
+]

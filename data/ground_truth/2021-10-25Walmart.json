@@ -1,0 +1,83 @@
+[
+  {
+    "productName": "PW 10IN FRY",
+    "purchaseDate": "2021.10.25",
+    "price": "10.76USD",
+    "amount": "1",
+    "storeName": "Walmart",
+    "latitude": 28.0222,
+    "longitude": -81.7329
+  },
+  {
+    "productName": "GV CRM CHKN",
+    "purchaseDate": "2021.10.25",
+    "price": "0.57USD",
+    "amount": "1",
+    "storeName": "Walmart",
+    "latitude": 28.0222,
+    "longitude": -81.7329
+  },
+  {
+    "productName": "GV CRM CHKN",
+    "purchaseDate": "2021.10.25",
+    "price": "0.57USD",
+    "amount": "1",
+    "storeName": "Walmart",
+    "latitude": 28.0222,
+    "longitude": -81.7329
+  },
+  {
+    "productName": "CRM MUSH 4PK",
+    "purchaseDate": "2021.10.25",
+    "price": "3.98USD",
+    "amount": "1",
+    "storeName": "Walmart",
+    "latitude": 28.0222,
+    "longitude": -81.7329
+  },
+  {
+    "productName": "GRT VALUE",
+    "purchaseDate": "2021.10.25",
+    "price": "1.97USD",
+    "amount": "1",
+    "storeName": "Walmart",
+    "latitude": 28.0222,
+    "longitude": -81.7329
+  },
+  {
+    "productName": "FIXODENT",
+    "purchaseDate": "2021.10.25",
+    "price": "11.98USD",
+    "amount": "1",
+    "storeName": "Walmart",
+    "latitude": 28.0222,
+    "longitude": -81.7329
+  },
+  {
+    "productName": "HT SM UTILI",
+    "purchaseDate": "2021.10.25",
+    "price": "1.87USD",
+    "amount": "1",
+    "storeName": "Walmart",
+    "latitude": 28.0222,
+    "longitude": -81.7329
+  },
+  {
+    "productName": "EQ LD 81MG",
+    "purchaseDate": "2021.10.25",
+    "price": "5.97USD",
+    "amount": "1",
+    "storeName": "Walmart",
+    "latitude": 28.0222,
+    "longitude": -81.7329
+  },
+  {
+    "productName": "CETIR10MG14",
+    "purchaseDate": "2021.10.25",
+    "price": "4.36USD",
+    "amount": "1",
+    "storeName": "Walmart",
+    "latitude": 28.0222,
+    "longitude": -81.7329
+  }
+]

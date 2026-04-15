@@ -11,11 +11,14 @@ dist/
 build/
 
 # ETL generated output
-output/
-logs/*.jsonl
-reports/Drafts/
-reports/models/
-reports/provider-charts/
+# logs/*.jsonl
+# reports/Drafts/
+# reports/models/
+# reports/provider-charts/
+*receiptAddress*
+*logs/
+*output/
+*reports/
 ocr_cache/
 
 # Experiment temp files
@@ -39,10 +42,8 @@ desktop.ini
 # Personal Data
 Receipts/
 ReceiptJson/
-ground_truth/
 
 scripts/
-data/
 experiments/
 debug/
 tests/
@@ -51,4 +52,3 @@ tests/
 docs/
 
 .railtracks
-

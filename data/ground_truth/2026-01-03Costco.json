@@ -1,0 +1,137 @@
+[
+    {
+        "productName": "KS Sparkling",
+        "purchaseDate": "2026.01.03",
+        "price": "11.99USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "Modelo Especial",
+        "purchaseDate": "2026.01.03",
+        "price": "26.09USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "Organic Free Range Eggs",
+        "purchaseDate": "2026.01.03",
+        "price": "7.69USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "Organic Free Range Eggs",
+        "purchaseDate": "2026.01.03",
+        "price": "7.69USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "KS Water Gallon",
+        "purchaseDate": "2026.01.03",
+        "price": "5.49USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "KS Organic Whole Milk",
+        "purchaseDate": "2026.01.03",
+        "price": "15.89USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "Red Grapes",
+        "purchaseDate": "2026.01.03",
+        "price": "6.99USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "Potatoes",
+        "purchaseDate": "2026.01.03",
+        "price": "6.99USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "Green Grapes",
+        "purchaseDate": "2026.01.03",
+        "price": "9.99USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "4LB Honeycrisp Apples",
+        "purchaseDate": "2026.01.03",
+        "price": "8.99USD",
+        "amount": "4lb",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "Fresh Garlic",
+        "purchaseDate": "2026.01.03",
+        "price": "6.99USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "KS Organic Granola",
+        "purchaseDate": "2026.01.03",
+        "price": "8.89USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "Neutrogena",
+        "purchaseDate": "2026.01.03",
+        "price": "19.99USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "Tortilla Tilapia",
+        "purchaseDate": "2026.01.03",
+        "price": "15.99USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    },
+    {
+        "productName": "Organic Bananas",
+        "purchaseDate": "2026.01.03",
+        "price": "2.49USD",
+        "amount": "1",
+        "storeName": "Costco Wholesale",
+        "latitude": 33.8886,
+        "longitude": -117.7513
+    }
+]

@@ -47,10 +47,13 @@ GYD_ACCESS_TOKEN = os.getenv("GYD_ACCESS_TOKEN", "")
 # --- Paths (Anchored to ROOT_DIR ensures these work anywhere) ---
 # ROOT_DIR is already Path(__file__).resolve().parent.parent (which is GatherYourDeals-ETL/)
 OCR_CACHE_DIR    = ROOT_DIR / "ocr_cache"
-
+# Volume Mount (Persistent)
+# Ensure your Volume is mounted to /data in Railway Settings
 DATA_DIR = Path("/data") # This matches your Railway Mount Path
-GROUND_TRUTH_DIR = DATA_DIR / "ground_truth"
-OUTPUT_DIR       = ROOT_DIR / "output"
+# 1. Ground Truth (Directly from your GitHub push)
+GROUND_TRUTH_DIR = ROOT_DIR / "data" / "ground_truth"
+# 2. Outputs (Created at runtime, temporary)
+OUTPUT_DIR = ROOT_DIR / "data" / "outputs"
 LOGS_DIR         = ROOT_DIR / "logs"
 REPORTS_DIR      = ROOT_DIR / "reports"
 

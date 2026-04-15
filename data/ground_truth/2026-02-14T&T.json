@@ -1,0 +1,128 @@
+[
+    {
+        "productName": "JXJ Crisp Green Cowpea",
+        "purchaseDate": "2026.02.14",
+        "price": "6.29CAD",
+        "amount": "1",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "14 Inch Bamboo Skewer with 4.0R",
+        "purchaseDate": "2026.02.14",
+        "price": "1.69CAD",
+        "amount": "1",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "DXC Beijing Traditional Pastry",
+        "purchaseDate": "2026.02.14",
+        "price": "26.88CAD",
+        "amount": "1",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "Haidilao Rattan Pepper Bobo Chicken",
+        "purchaseDate": "2026.02.14",
+        "price": "6.59CAD",
+        "amount": "1",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "Carrot",
+        "purchaseDate": "2026.02.14",
+        "price": "0.52CAD",
+        "amount": "0.305kg",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "Lotus Root",
+        "purchaseDate": "2026.02.14",
+        "price": "4.18CAD",
+        "amount": "1.130kg",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "Fresh Cauliflower",
+        "purchaseDate": "2026.02.14",
+        "price": "7.04CAD",
+        "amount": "0.915kg",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "Tomatoes",
+        "purchaseDate": "2026.02.14",
+        "price": "2.11CAD",
+        "amount": "0.510kg",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "Red Pomelo",
+        "purchaseDate": "2026.02.14",
+        "price": "5.00CAD",
+        "amount": "2",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "Viet Huong Chicken Balls",
+        "purchaseDate": "2026.02.14",
+        "price": "6.07CAD",
+        "amount": "1",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "Shuwei Original Ham Sausage",
+        "purchaseDate": "2026.02.14",
+        "price": "15.87CAD",
+        "amount": "1",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "SD Boiled Shelled Quail Eggs",
+        "purchaseDate": "2026.02.14",
+        "price": "5.99CAD",
+        "amount": "1",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "VNF Shanghai Thin Dried Tofu",
+        "purchaseDate": "2026.02.14",
+        "price": "3.29CAD",
+        "amount": "1",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    },
+    {
+        "productName": "Synear Mushroom Vegie Dumpling",
+        "purchaseDate": "2026.02.14",
+        "price": "3.71CAD",
+        "amount": "1",
+        "storeName": "T&T Supermarket",
+        "latitude": 49.2796,
+        "longitude": -123.107
+    }
+]

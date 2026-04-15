@@ -1,0 +1,29 @@
+[
+  {
+    "productName": "GUAVA NECTAR GMRJ",
+    "purchaseDate": "2026.01.01",
+    "price": "2.00CAD",
+    "amount": "1",
+    "storeName": "REAL CANADIAN SUPERSTORE",
+    "latitude": 49.2501483,
+    "longitude": -122.7563243
+  },
+  {
+    "productName": "BAKE SHOP ITEM MRJ",
+    "purchaseDate": "2026.01.01",
+    "price": "1.59CAD",
+    "amount": "1",
+    "storeName": "REAL CANADIAN SUPERSTORE",
+    "latitude": 49.2501483,
+    "longitude": -122.7563243
+  },
+  {
+    "productName": "COLG OW TP STAIN",
+    "purchaseDate": "2026.01.01",
+    "price": "0.10CAD",
+    "amount": "1",
+    "storeName": "REAL CANADIAN SUPERSTORE",
+    "latitude": 49.2501483,
+    "longitude": -122.7563243
+  }
+]

@@ -1,0 +1,56 @@
+[
+  {
+    "productName": "OPN NAT GRANOLA",
+    "purchaseDate": "2025.10.01",
+    "price": "4.79USD",
+    "amount": "1",
+    "storeName": "Vons",
+    "latitude": 33.8574,
+    "longitude": -117.7627
+  },
+  {
+    "productName": "GRANOLA BLUBRY FLX",
+    "purchaseDate": "2025.10.01",
+    "price": "4.79USD",
+    "amount": "1",
+    "storeName": "Vons",
+    "latitude": 33.8574,
+    "longitude": -117.7627
+  },
+  {
+    "productName": "LUCERNE MILK 1% LF",
+    "purchaseDate": "2025.10.01",
+    "price": "2.79USD",
+    "amount": "1",
+    "storeName": "Vons",
+    "latitude": 33.8574,
+    "longitude": -117.7627
+  },
+  {
+    "productName": "BONDUELLE BISTRO",
+    "purchaseDate": "2025.10.01",
+    "price": "3.33USD",
+    "amount": "1",
+    "storeName": "Vons",
+    "latitude": 33.8574,
+    "longitude": -117.7627
+  },
+  {
+    "productName": "BONDUELLE BISTRO",
+    "purchaseDate": "2025.10.01",
+    "price": "3.33USD",
+    "amount": "1",
+    "storeName": "Vons",
+    "latitude": 33.8574,
+    "longitude": -117.7627
+  },
+  {
+    "productName": "BONDUELLE BISTRO",
+    "purchaseDate": "2025.10.01",
+    "price": "3.33USD",
+    "amount": "1",
+    "storeName": "Vons",
+    "latitude": 33.8574,
+    "longitude": -117.7627
+  }
+]

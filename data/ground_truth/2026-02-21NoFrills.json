@@ -1,0 +1,83 @@
+[
+  {
+    "productName": "GRD A LRG BRWN",
+    "purchaseDate": "2026.02.21",
+    "price": "5.45CAD",
+    "amount": "1",
+    "storeName": "No Frills",
+    "latitude": 49.2869,
+    "longitude": -123.1394
+  },
+  {
+    "productName": "HMGZD MILK 3.25%",
+    "purchaseDate": "2026.02.21",
+    "price": "3.04CAD",
+    "amount": "1",
+    "storeName": "No Frills",
+    "latitude": 49.2869,
+    "longitude": -123.1394
+  },
+  {
+    "productName": "PC BLUEBERRY WLD",
+    "purchaseDate": "2026.02.21",
+    "price": "4.75CAD",
+    "amount": "1",
+    "storeName": "No Frills",
+    "latitude": 49.2869,
+    "longitude": -123.1394
+  },
+  {
+    "productName": "PC CHERRIES IQF",
+    "purchaseDate": "2026.02.21",
+    "price": "4.75CAD",
+    "amount": "1",
+    "storeName": "No Frills",
+    "latitude": 49.2869,
+    "longitude": -123.1394
+  },
+  {
+    "productName": "NNNI TOMATO",
+    "purchaseDate": "2026.02.21",
+    "price": "5.50CAD",
+    "amount": "1",
+    "storeName": "No Frills",
+    "latitude": 49.2869,
+    "longitude": -123.1394
+  },
+  {
+    "productName": "BANANA",
+    "purchaseDate": "2026.02.21",
+    "price": "2.00CAD",
+    "amount": "1.160 kg",
+    "storeName": "No Frills",
+    "latitude": 49.2869,
+    "longitude": -123.1394
+  },
+  {
+    "productName": "CELERY STICKS",
+    "purchaseDate": "2026.02.21",
+    "price": "0.26CAD",
+    "amount": "0.075 kg",
+    "storeName": "No Frills",
+    "latitude": 49.2869,
+    "longitude": -123.1394
+  },
+  {
+    "productName": "JPN SWT YAM",
+    "purchaseDate": "2026.02.21",
+    "price": "6.01CAD",
+    "amount": "1.095 kg",
+    "storeName": "No Frills",
+    "latitude": 49.2869,
+    "longitude": -123.1394
+  },
+  {
+    "productName": "CHKN DRUM",
+    "purchaseDate": "2026.02.21",
+    "price": "10.00CAD",
+    "amount": "1",
+    "storeName": "No Frills",
+    "latitude": 49.2869,
+    "longitude": -123.1394
+  }
+]

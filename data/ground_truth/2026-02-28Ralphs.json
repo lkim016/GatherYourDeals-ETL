@@ -1,0 +1,38 @@
+[
+    {
+        "productName": "Embasa Casera Salsa",
+        "purchaseDate": "2026.02.28",
+        "price": "1.49USD",
+        "amount": "1",
+        "storeName": "Ralphs",
+        "latitude": 33.8353,
+        "longitude": -117.7387
+    },
+    {
+        "productName": "Campbells Soup",
+        "purchaseDate": "2026.02.28",
+        "price": "1.99USD",
+        "amount": "1",
+        "storeName": "Ralphs",
+        "latitude": 33.8353,
+        "longitude": -117.7387
+    },
+    {
+        "productName": "Campbells Soup",
+        "purchaseDate": "2026.02.28",
+        "price": "1.99USD",
+        "amount": "1",
+        "storeName": "Ralphs",
+        "latitude": 33.8353,
+        "longitude": -117.7387
+    },
+    {
+        "productName": "Coombs Vermont Syrup",
+        "purchaseDate": "2026.02.28",
+        "price": "10.49USD",
+        "amount": "1",
+        "storeName": "Ralphs",
+        "latitude": 33.8353,
+        "longitude": -117.7387
+    }
+]

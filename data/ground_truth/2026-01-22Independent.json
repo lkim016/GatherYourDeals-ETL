@@ -1,0 +1,20 @@
+[
+    {
+        "productName": "Parsley Italian",
+        "purchaseDate": "2026.01.22",
+        "price": "2.69CAD",
+        "amount": "1",
+        "storeName": "YOUR INDEPENDENT GROCER",
+        "latitude": 49.2776,
+        "longitude": -123.1241
+    },
+    {
+        "productName": "Lemon",
+        "purchaseDate": "2026.01.22",
+        "price": "1.29CAD",
+        "amount": "1",
+        "storeName": "YOUR INDEPENDENT GROCER",
+        "latitude": 49.2776,
+        "longitude": -123.1241
+    }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "productName": "NISSIN BEEF FLV INSTANT NOODLE",
+    "purchaseDate": "2026.02.19",
+    "price": "11.00CAD",
+    "amount": "3",
+    "storeName": "T&T Supermarket",
+    "latitude": 49.2796,
+    "longitude": -123.1043
+  },
+  {
+    "productName": "CICI ASSORTED FLV JELLY SNACK",
+    "purchaseDate": "2026.02.19",
+    "price": "4.99CAD",
+    "amount": "1",
+    "storeName": "T&T Supermarket",
+    "latitude": 49.2796,
+    "longitude": -123.1043
+  },
+  {
+    "productName": "BESTORE VC HAWTHORN STRIP",
+    "purchaseDate": "2026.02.19",
+    "price": "4.00CAD",
+    "amount": "1",
+    "storeName": "T&T Supermarket",
+    "latitude": 49.2796,
+    "longitude": -123.1043
+  }
+]

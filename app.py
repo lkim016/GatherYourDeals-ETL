@@ -54,6 +54,7 @@ from pydantic import BaseModel
 from src import etl as _etl
 from src.core import config
 from src.logs import etl_logger as el
+from src.logs import reporting as rpt
 
 import gdown
 from google.oauth2.credentials import Credentials
@@ -542,7 +543,7 @@ async def run_etl(
         try:
             # Pass the results list to your evaluation utility
             # It will compare these against the Ground Truth and ping Discord once.
-            await asyncio.to_thread(_etl.run_batch_evaluation, results)
+            await asyncio.to_thread(rpt.run_batch_evaluation, results)
         except Exception as eval_exc:
             # We use a broad catch here because we don't want an 
             # evaluation failure to crash the actual ETL response.

@@ -36,7 +36,7 @@ IMAGE_EXTS       = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".tiff", ".tif", 
 
 
 
-def send_discord_summary(avg_score, total_receipts, rows):
+def _send_discord_summary(avg_score, total_receipts, rows):
     """
     Sends a formatted summary of the ETL evaluation to a Discord Webhook.
     """
@@ -75,6 +75,31 @@ def send_discord_summary(avg_score, total_receipts, rows):
     except Exception as e:
         print(f"ERROR: Failed to send Discord notification: {e}")
 
+
+def run_batch_evaluation(results: list[dict]):
+    # results[0] contains the model/provider used in this batch
+    if not results: return
+    
+    res = results[0]
+    model_slug = res['model'].split("/")[-1].lower()
+    
+    # Path to what we just generated
+    target_dir = config.OUTPUT_DIR / f"{res['provider']}-{model_slug}"
+    # Path to what you pushed to GitHub
+    gt_dir = config.GROUND_TRUTH_DIR
+
+    print(f"📊 EVAL: Comparing {target_dir} vs {gt_dir}")
+
+    if not gt_dir.exists() or not target_dir.exists():
+        print("❌ EVAL: One of the directories is missing. Skipping.")
+        return
+
+    # Run your scoring engine
+    header, rows, scores = _compute_eval(target_dir, gt_dir=gt_dir)
+
+    if scores:
+        avg = sum(scores) / len(scores)
+        _send_discord_summary(avg, len(scores), rows)
 
 # ---------------------------------------------------------------------------
 # Log loader
@@ -209,7 +234,7 @@ def _score_receipt(output_items: list, truth_items: list) -> dict:
     return scores
 
 
-def compute_eval(output_dir: Path, gt_dir: Path = config.GROUND_TRUTH_DIR):
+def _compute_eval(output_dir: Path, gt_dir: Path = config.GROUND_TRUTH_DIR):
     """Score every output/<stem>.json against ground_truth/<stem>.json."""
     header = ("Image", "GT items", "Store", "Date", "Lat", "Lon",
               "Items", "Name match", "Price match", "Amount match", "Score")

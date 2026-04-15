@@ -1,0 +1,29 @@
+[
+  {
+    "productName": "MON Butter Chicken Dosa",
+    "purchaseDate": "2026.01.26",
+    "price": "5.99CAD",
+    "amount": "1",
+    "storeName": "House of Dosa",
+    "latitude": 49.2818,
+    "longitude": -123.1371
+  },
+  {
+    "productName": "MON Masala Dosa",
+    "purchaseDate": "2026.01.26",
+    "price": "5.99CAD",
+    "amount": "1",
+    "storeName": "House of Dosa",
+    "latitude": 49.2818,
+    "longitude": -123.1371
+  },
+  {
+    "productName": "MON Eggplant Dosa",
+    "purchaseDate": "2026.01.26",
+    "price": "5.99CAD",
+    "amount": "1",
+    "storeName": "House of Dosa",
+    "latitude": 49.2818,
+    "longitude": -123.1371
+  }
+]

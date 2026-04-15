@@ -1,0 +1,38 @@
+[
+  {
+    "productName": "REYNOLDS WRAP FOIL",
+    "purchaseDate": "2021.06.14",
+    "price": "3.69USD",
+    "amount": "1",
+    "storeName": "Kroger",
+    "latitude": 32.8998,
+    "longitude": -97.3864
+  },
+  {
+    "productName": "KRO CREAMER",
+    "purchaseDate": "2021.06.14",
+    "price": "1.99USD",
+    "amount": "1",
+    "storeName": "Kroger",
+    "latitude": 32.8998,
+    "longitude": -97.3864
+  },
+  {
+    "productName": "IMPR MARGRINE",
+    "purchaseDate": "2021.06.14",
+    "price": "0.89USD",
+    "amount": "1",
+    "storeName": "Kroger",
+    "latitude": 32.8998,
+    "longitude": -97.3864
+  },
+  {
+    "productName": "KROGER EGGS",
+    "purchaseDate": "2021.06.14",
+    "price": "2.19USD",
+    "amount": "1",
+    "storeName": "Kroger",
+    "latitude": 32.8998,
+    "longitude": -97.3864
+  }
+]
