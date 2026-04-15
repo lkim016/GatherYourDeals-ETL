@@ -361,7 +361,12 @@ async def _process_one(
             total_cost = data.get("llm_cost_usd", 0.0)
         except Exception as exc:
             error_msg = f"extraction: {exc}"
-            return {"success": False, "message": f"Failed to parse data: {exc}"}
+            return {
+                "success": False, 
+                "message": f"Failed to parse data: {exc}",
+                "provider": provider,
+                "model": model
+            }
 
         # 2. TRANSFORM
         rows = _etl.flatten_receipt(data)
@@ -376,15 +381,20 @@ async def _process_one(
         )
 
         # 3. UPLOAD
-        data["imageName"] = display_name
         try:
             created = _etl.upload(data, run_id, token=jwt_token, refresh_token=refresh_token)
-            print(f"  ✓  [Upload] Success: {len(created)} records")
+            # This is where your console gets that nice checkmark
+            print(f"   ✓  [Upload] Success: {len(created)} records")
         except Exception as exc:
-            import traceback
-            traceback.print_exc()
             error_msg = f"upload: {exc}"
-            return {"success": False, "message": f"Upload error: {exc}"}
+            # Even if upload fails, we still return the model/provider info 
+            # so the evaluator can try to run on whatever was saved locally!
+            return {
+                "success": False, 
+                "message": error_msg, 
+                "provider": provider, 
+                "model": model
+            }
 
         # 4. REGISTRY
         image_stem = Path(display_name).stem or display_name
@@ -394,7 +404,13 @@ async def _process_one(
         
         # If we reached here, it's a success
         success = True
-        return {"success": True, "message": "ETL completed successfully", "registry": registry}
+        return {
+            "success": True, 
+            "message": "ETL completed successfully", 
+            "registry": registry,
+            "provider": provider,   # <--- ADD THIS
+            "model": model          # <--- ADD THIS
+        }
 
     except Exception as exc:
         error_msg = f"unhandled: {exc}"

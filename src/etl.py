@@ -733,76 +733,55 @@ def validate_extraction(raw_items: list[dict], store_name: str, currency: str = 
 def extract(image_data: "Path | bytes", display_name: str, user_name: str, model: str, run_id: str,
             provider: str | None = None, use_cache: bool = True) -> dict:
     resolved_provider = (provider or config.LLM_PROVIDER).lower()
-
-    # FIX: Check if rt is actually defined before using it
-    if _RT_AVAILABLE and 'rt' in globals():
-        # Railtracks path requires a file on disk — only available when image_data is a Path.
-        if isinstance(image_data, bytes):
-            # Create a temp file so Railtracks has a physical path to work with
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                tmp.write(image_data)
-                tmp_path = tmp.name
-            image_to_process = tmp_path
-        else:
-            image_to_process = str(image_data)
     
-        try:
-            flow = rt.Flow(name="receipt_etl", entry_point=receipt_pipeline)
-            # 1. Invoke the pipeline (which now runs validation internally)
-            result = flow.invoke(OcrInput(
-                image_path=image_to_process,
-                display_name=display_name,
-                run_id=run_id,
-                user_name=user_name,
-                model=model,
-                provider=resolved_provider,
-            ))
+    # 1. Prepare the image path for Railtracks
+    image_to_process = None
+    is_temp = False
 
-            if isinstance(image_data, bytes) and os.path.exists(image_to_process):
+    if isinstance(image_data, bytes):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+            tmp.write(image_data)
+            image_to_process = tmp.name
+            is_temp = True
+    else:
+        image_to_process = str(image_data)
+
+    try:
+        # 2. Invoke Railtracks
+        # Assuming rt and receipt_pipeline are imported/available
+        flow = rt.Flow(name="receipt_etl", entry_point=receipt_pipeline)
+        
+        # Note: Ensure you pass the correct arguments to your specific pipeline
+        result = flow.invoke(input_path=image_to_process, model=model, provider=resolved_provider)
+
+        # 3. Build the response data
+        data = json.loads(result.receipt_json)
+        data["is_valid"] = result.is_valid
+        data["items_count"] = result.items_count
+        
+        # IMPORTANT: Capture cost for the logger in app.py
+        # Railtracks usually stores metadata in the result object
+        data["llm_cost_usd"] = getattr(result, "cost", 0.0) 
+        
+        return data
+
+    except Exception as exc:
+        print(f"Extraction Error for {display_name}: {exc}")
+        # Return a structure that _process_one expects for failure
+        return {
+            "success": False, 
+            "message": str(exc),
+            "provider": resolved_provider,
+            "model": model,
+            "llm_cost_usd": 0.0
+        }
+    finally:
+        # 4. Cleanup the temp file
+        if is_temp and image_to_process and os.path.exists(image_to_process):
+            try:
                 os.remove(image_to_process)
-            
-            # 2. Convert the cleaned JSON string back to a dict
-            data = json.loads(result.receipt_json)
-            
-            # 3. Attach the quality flag so the UI/Database knows if this was "junk"
-            data["is_valid"] = result.is_valid
-            data["items_count"] = result.items_count
-            
-            # 4. Optional: If it's invalid, you could log it specifically here
-            if not result.is_valid:
-                print(f"⚠️  Extraction quality low for {display_name} (flagged as noise).")
-            
-            return data
-
-        except Exception as e:
-            print(f"Railtracks failed: {e}, falling back to manual pipeline")
-            return {
-                "items": [],
-                "storeName": "Error",
-                "total_usd": 0.0,
-                "success": False,
-                "is_valid": False, # Ensure the flag exists even on crash
-                "message": str(e)
-            }
-
-    # if _RT_AVAILABLE and isinstance(image_data, Path):
-    #     flow = rt.Flow(name="receipt_etl", entry_point=receipt_pipeline)
-    #     result: StructureOutput = flow.invoke(OcrInput(
-    #         image_path=str(image_data),
-    #         run_id=run_id,
-    #         user_name=user_name,
-    #         model=model,
-    #         provider=resolved_provider,
-    #     ))
-    #     return json.loads(result.receipt_json)
-    # else:
-    #     cache_stem = Path(display_name).stem if display_name else "unknown"
-    #     _cache_hit = use_cache and (config.OCR_CACHE_DIR / (cache_stem + ".txt")).exists()
-    #     print(f"  [ADI]  OCR {'(cached)' if _cache_hit else '…'}")
-    #     ocr_text = ocr.AzureOCRService(image_data, display_name, run_id, user_id=user_name, use_cache=use_cache)
-    #     print(f"  [LLM]  Structuring via {resolved_provider} ({len(ocr_text)} chars) …")
-    #     result, _, _, _ = structure(ocr_text, display_name, user_name, model, run_id, provider=resolved_provider)
-    #     return result
+            except:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -817,65 +796,66 @@ def upload(receipt: dict, run_id: str, token: str | None = None, refresh_token: 
             "pip install git+https://github.com/yuewang199511/GatherYourDeals-SDK.git"
         )
 
-    # Token priority: per-request JWT (forwarded from caller) >
-    #                 GYD_ACCESS_TOKEN env var (CLI / local testing fallback)
+    # Setup Client
     resolved_token = token or config.GYD_ACCESS_TOKEN
     client = GYDClient(config.GYD_SERVER_URL, auto_persist_tokens=False)
     if resolved_token:
         client._transport.set_tokens(resolved_token, refresh_token or "")
 
-    items   = receipt.get("items", [])
+    items = receipt.get("items", [])
     created, failed = [], 0
-    start   = time.monotonic()
+    start_time = time.monotonic()
+    image_name = receipt.get("imageName", "")
+    user_name = receipt.get("userName", "Unknown")
 
-    image_name  = receipt.get("imageName", "")
+    # Shared receipt metadata
+    purchase_date = receipt.get("purchaseDate", "0000.00.00")
+    store = receipt.get("storeName", "Unknown")
 
     _UPLOAD_MAX_RETRIES = 3
-    _UPLOAD_RETRY_DELAY = 1.0  # seconds between retries
+    _UPLOAD_RETRY_DELAY = 1.0
 
     for item in items:
-        product_name = item.get("productName", "")
-        # --- DEFINE THESE FIRST ---
-        purchase_date = receipt.get("purchaseDate", "0000.00.00")
+        product_name = item.get("productName", "Unknown Item")
         price = item.get("price", "0.00USD")
-        store = receipt.get("storeName", "Unknown")
-        # --------------------------
+        amount = str(item.get("amount", "1"))
+        
         last_exc = None
         for attempt in range(1, _UPLOAD_MAX_RETRIES + 1):
             try:
-                # Keep product_name as a string unless the SDK specifically asked for a tuple
                 r = client.receipts.create(
                     product_name=product_name, 
                     purchase_date=purchase_date,
                     price=price,
-                    amount=str(item.get("amount", "1")),
+                    amount=amount,
                     store_name=store,
                 )
-                # Now print after successful creation
-                print(f"[{run_id[:8]:<8}] {purchase_date:10}  {product_name:<25}  {price:>10}  @ {store}")
-                
+                print(f"[{run_id[:8]}] {purchase_date}  {product_name:<25}  {price:>10}  @ {store}")
                 created.append(r)
                 last_exc = None
-                break
+                break 
             except Exception as e:
                 last_exc = e
                 if attempt < _UPLOAD_MAX_RETRIES:
-                    print(f"    [WARN] upload attempt {attempt}/{_UPLOAD_MAX_RETRIES} failed for '{product_name}': {e} — retrying in {_UPLOAD_RETRY_DELAY}s")
                     time.sleep(_UPLOAD_RETRY_DELAY)
+        
         if last_exc is not None:
-            print(f"    [ERROR] upload failed for '{product_name}' after {_UPLOAD_MAX_RETRIES} attempts: {last_exc}")
+            print(f"[ERROR] upload failed for '{product_name}' after {attempt} attempts: {last_exc}")
             failed += 1
 
-    latency_ms = (time.monotonic() - start) * 1000
-    el.log_upload(run_id, image_name, receipt.get("userName", ""),
-               len(items), len(created), failed, latency_ms,
-               failed == 0, f"{failed} items failed" if failed else None)
+    # Final Internal Log for the Upload Step
+    latency_ms = (time.monotonic() - start_time) * 1000
+    el.log_upload(
+        run_id, image_name, user_name,
+        len(items), len(created), failed, latency_ms,
+        success=(failed == 0), 
+        error=f"{failed} items failed" if failed else None
+    )
 
-    if failed:
-        raise RuntimeError(
-            f"Upload incomplete: {failed}/{len(items)} item(s) failed for '{image_name}'"
-        )
-
+    # If anything failed, we raise this so _process_one knows to mark the whole run as a 'partial success' or 'failure'
+    if failed > 0 and len(created) == 0:
+        raise RuntimeError(f"Total upload failure: 0/{len(items)} items created.")
+    
     return created
 
 
