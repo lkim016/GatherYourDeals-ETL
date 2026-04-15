@@ -67,8 +67,13 @@ import sys
 import time
 import uuid
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+
+import os
+import requests
+import time
+import traceback
 
 from src.reporting import eval_receipts, baseline_report  # noqa: E402 (after load_dotenv)
 from src.etl_logger import (  # noqa: E402
@@ -241,8 +246,8 @@ def flatten_receipt(receipt: dict) -> list[dict]:
 
     flat_items: list[dict] = []
     for item in receipt.get("items", []):
-        name  = (item.get("productName") or "").strip()
-        price = (item.get("price") or "").strip()
+        name  = str(item.get("productName") or "").strip()
+        price = str(item.get("price") or "").strip()
 
         if not name or not price:
             continue
@@ -291,6 +296,36 @@ def flatten_receipt(receipt: dict) -> list[dict]:
     return deduped
 
 
+def _send_to_discord(entry: dict):
+    """
+    Internal helper to forward JSONL log entries to Discord.
+    This replaces the need for a separate audit_log function.
+    """
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+    
+    if not webhook_url:
+        return
+
+    # Determine status for color-coding or emoji
+    is_success = entry.get("level") == "INFO"
+    status_emoji = "✅" if is_success else "❌"
+    event_type = entry.get("event", "unknown").upper()
+    
+    # Format the JSON entry for a Discord code block
+    # Truncate to avoid Discord's 2000 character message limit
+    content = json.dumps(entry, indent=2, ensure_ascii=False)
+    if len(content) > 1800:
+        content = content[:1800] + "\n... (truncated)"
+    
+    payload = {
+        "content": f"{status_emoji} **ETL {event_type}** | `{entry.get('image_name')}`\n```json\n{content}\n```"
+    }
+    
+    try:
+        requests.post(webhook_url, json=payload, timeout=5)
+    except Exception as e:
+        print(f"Failed to forward log to Discord: {e}")
+
 
 def structure(ocr_text: str, display_name: str, user_name: str,
               model: str, run_id: str, provider: str | None = None) -> dict:
@@ -333,7 +368,6 @@ def structure(ocr_text: str, display_name: str, user_name: str,
     # Use the leaner direct-output prompt for simple receipts (no CoT scaffolding).
     # Simple = single chunk with spatial layout (column-aligned, unambiguous).
     # Complex = chunked or no spatial layout → keep full CoT prompt for accuracy.
-    _SPATIAL_MARKER = "\n---\n## SPATIAL LAYOUT\n"
     _use_direct = not is_chunked and _SPATIAL_MARKER in ocr_text
     _is_costco  = "COSTCO" in ocr_text.upper()[:500]
     _prompt = _build_system_prompt(ocr_text, _use_direct)
@@ -353,6 +387,7 @@ def structure(ocr_text: str, display_name: str, user_name: str,
     chunk_results: list[dict] = []
 
     try:
+        # --- LLM EXTRACTION ---
         for chunk_text in chunks:
             # Use the imported utility! 
             # It handles provider branching, retries, and JSON parsing internally.
@@ -373,6 +408,7 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         # Merge chunks (no-op when only one chunk)
         result = llm._merge_chunk_results(chunk_results)
 
+        # --- HALLUCINATION GUARD ---
         # Hallucination guard: if none of the extracted item names appear in the
         # OCR text, the model fabricated the receipt.  Retry once with the same
         # model; if it hallucinates again, fall back to the other CLOD model.
@@ -394,8 +430,8 @@ def structure(ocr_text: str, display_name: str, user_name: str,
             if retry_chunks:
                 result = llm._merge_chunk_results(retry_chunks)
 
+        # --- DETERMINISTIC POST-PROCESSING ---
         # Deterministic post-processing: drop bad rows, fix column swaps
-
         # Tier 2c — normalise store name first so Canadian-store CAD inference works.
         if result.get("storeName"):
             result["storeName"] = llm._normalize_store_name(result["storeName"])
@@ -424,7 +460,7 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         result["items"] = llm._inject_weight_prices(result["items"], ocr_text, currency)
 
         # Tier 3b+4 — targeted repair for items with null price, then escalate
-        null_price_count = sum(1 for i in result["items"] if not (i.get("price") or "").strip() or (i.get("price") or "").lower() == "null")
+        null_price_count = sum(1 for i in result.get("items", []) if not str(i.get("price") or "").strip() or str(i.get("price") or "").lower() == "null")
         if null_price_count:
             result["items"] = llm._repair_failed_items(
                 result["items"], ocr_text, model, resolved_provider, currency
@@ -436,83 +472,55 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         result["totalItems"] = len(result["items"])
         result["imageName"] = display_name
         result["userName"]  = user_name
-        # Flatten and then OVERWRITE the items list with the cleaned version
-        # This ensures that 'items' only contains real products for the upload.
-        cleaned_rows = flatten_receipt(result)
-        result["items"] = cleaned_rows
+        
 
-        # Geocode once using merged store address.
-        # Fallback: if LLM returned no storeAddress, extract it from the OCR text
-        # by looking for a line that contains digits + street keywords near the top.
-        # 1. Resolve the address (use fallback if LLM missed it)
-        address = (result.get("storeAddress") or "").strip()
-        if not address or len(address) < 12:
-            address = llm._extract_address_from_ocr(ocr_text, result.get("storeName") or "")
-            result["storeAddress"] = address
-            
-        # 2. Get the coordinates from your updated geo.py
-        # short_name = (result.get("storeName") or "").split(" ")[0]
-        # lat, lon = geo.geocode(address, store_name=short_name)
+        # Aggressive Junk Filter logic
+        valid_items = []
+        for item in flatten_receipt(result):
+            name = str(item.get("productName") or "").strip()
+            is_barcode = any([name.isdigit() and len(name) > 8, len(name) > 10 and any(char.isdigit() for char in name[:8])])
+            if is_barcode or "%" in name or "TAX" in name.upper() or len(name) <= 1:
+                continue
+            if any(stop in name.upper() for stop in ["SUBTOTAL", "TOTAL", "CASH", "CHANGE"]):
+                continue
+            item["purchaseDate"] = result.get("purchaseDate")
+            item["storeName"] = result.get("storeName")
+            valid_items.append(item)
+        
+        result["items"] = valid_items
+        
+        # --- LOGGING & DISCORD FORWARDING ---
+        # 1. Create the log entry
+        log_entry = log_llm(
+            run_id, display_name, user_name, resolved_provider, model,
+            total_pt, total_ct, total_cost, latency_ms,
+            len(result["items"]), True,
+            cost_source=cost_source, latency_source=latency_source,
+                input_chars=_input_chars, prompt_path=_prompt_path
+        )
+        # 2. Forward to Discord
+        _send_to_discord(log_entry)
 
-        # 3. Update the nested items list with coordinates and filter junk
-        if "items" in result:
-            valid_items = []
-            
-            for item in result["items"]:
-                name = item.get("productName", "").strip()
-                
-                # --- NEW: Aggressive Barcode/Junk Filter ---
-                # This catches: "003700071650H" (numbers + H) 
-                # or anything that is mostly just a long ID number.
-                is_barcode = any([
-                    name.isdigit() and len(name) > 8,
-                    len(name) > 10 and any(char.isdigit() for char in name[:8]) # Starts with numbers
-                ])
-
-                if is_barcode:
-                    print(f"  [LLM] Skipping barcode/ID found in name: {name}")
-                    continue # Drop it from the final list
-                
-                # --- FILTERING LOGIC ---
-                if "%" in name or "TAX" in name.upper():
-                    continue
-                
-                if len(name) <= 1:
-                    continue
-                
-                if any(stop in name.upper() for stop in ["SUBTOTAL", "TOTAL", "CASH", "CHANGE"]):
-                    continue
-                # -----------------------
-
-                # --- BARCODE WARNING (Inside the loop) ---
-                if name.isdigit() and len(name) > 10:
-                     print(f"  [LLM]  Warning: Found barcode instead of name: {name}")
-
-                # Attach the data
-                item["purchaseDate"] = result.get("purchaseDate")
-                item["storeName"] = result.get("storeName")
-                
-                valid_items.append(item)
-            
-            # Replace with the cleaned version
-            result["items"] = valid_items
-                
-
-        log_llm(run_id, display_name, user_name, resolved_provider, model,
-                total_pt, total_ct, total_cost, latency_ms,
-                len(result.get("items", [])), True,
-                cost_source=cost_source, latency_source=latency_source,
-                input_chars=_input_chars, prompt_path=_prompt_path)
         return result, total_pt, total_ct, total_cost
+
+        # log_llm(run_id, display_name, user_name, resolved_provider, model,
+        #         total_pt, total_ct, total_cost, latency_ms,
+        #         len(result.get("items", [])), True,
+        #         cost_source=cost_source, latency_source=latency_source,
+        #         input_chars=_input_chars, prompt_path=_prompt_path)
+        # return result, total_pt, total_ct, total_cost
 
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
-        log_llm(run_id, display_name, user_name, resolved_provider, model,
-                0, 0, 0.0, latency_ms, 0, False, str(e), latency_source="local",
-                input_chars=_input_chars, prompt_path=_prompt_path)
-        raise
-
-
+        error_log = log_llm(
+            run_id, display_name, user_name, resolved_provider, model,
+            0, 0, 0.0, latency_ms, 0, False, str(e), latency_source="local",
+            input_chars=_input_chars, prompt_path=_prompt_path
+        )
+        # Forward error log to Discord
+        _send_to_discord(error_log)
+        raise e
+    
 # ---------------------------------------------------------------------------
 # Railtracks — Pydantic context models + function nodes
 # ---------------------------------------------------------------------------
@@ -858,8 +866,6 @@ def _registry_save(image_stem: str, ids: list[str]) -> None:
     registry[image_stem] = ids
     config.UPLOAD_REGISTRY.write_text(json.dumps(registry, indent=2, ensure_ascii=False),
                                 encoding="utf-8")
-
-
 
 
 # ---------------------------------------------------------------------------
