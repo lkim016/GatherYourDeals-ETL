@@ -214,7 +214,8 @@ _FLAT_NON_PRODUCT = re.compile(
     r"\b(donation|charity|bag\s+fee|bottle\s+dep|deposit|recycling|crv|redemption|"
     r"tax|subtotal|total|savings?|discount|coupon|reward|point|loyalty|"
     r"balance\s+due|change\s+due|cash\s+back|gift\s+card|gst|hst|pst|visa|"
-    r"mastercard|cash|change|balancedue|points earned|net \d+|lb|kg|@)\b",
+    r"how did we do|survey|feedback|visit us|thank you|mastercard|cash|"
+    r"change|balancedue|points earned|net \d+|lb|kg|@)\b",
     re.IGNORECASE
 )
 
@@ -240,9 +241,7 @@ def flatten_receipt(receipt: dict) -> list[dict]:
     purchase_date = receipt.get("purchaseDate") or None
     lat           = receipt.get("latitude")
     lon           = receipt.get("longitude")
-
-    # Normalised store name for containment check (e.g. "no frills", "kroger")
-    store_lower = (store_name or "").lower()
+    store_lower   = (store_name or "").lower()
 
     flat_items: list[dict] = []
     for item in receipt.get("items", []):
@@ -261,9 +260,9 @@ def flatten_receipt(receipt: dict) -> list[dict]:
             print(f"DEBUG: [Flatten] REJECTED: Missing name or price")
             continue
 
-        # 3. Noise reduction
-        if any(noise in name.upper() for noise in ["NET", "@", "LB", "PCS"]):
-            print(f"DEBUG: [Flatten] REJECTED: Unit/Weight noise")
+        # 3. Noise reduction (Tuned for Precision)
+        if any(noise in name.upper() for noise in ["NET", "@", "LB", "PCS"]) or "?" in name:
+            print(f"DEBUG: [Flatten] REJECTED: Unit/Weight/Survey noise")
             continue
             
         if sum(c.isalpha() for c in name) < 2:
@@ -287,7 +286,7 @@ def flatten_receipt(receipt: dict) -> list[dict]:
             print(f"DEBUG: [Flatten] REJECTED: Store name leak")
             continue
 
-        # 5. Add to valid items
+        # 5. Success!
         flat_items.append({
             "productName":  name,
             "purchaseDate": purchase_date,
