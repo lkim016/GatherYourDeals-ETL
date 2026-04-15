@@ -213,10 +213,10 @@ _VALID_PRICE_RE = re.compile(r"^\d+\.\d{2}[A-Z]{3}$")
 _FLAT_NON_PRODUCT = re.compile(
     r"\b(donation|charity|bag\s+fee|bottle\s+dep|deposit|recycling|crv|redemption|"
     r"tax|subtotal|total|savings?|discount|coupon|reward|point|loyalty|"
-    r"balance\s+due|change\s+due|cash\s+back|gift\s+card)\b",
-    re.IGNORECASE,
+    r"balance\s+due|change\s+due|cash\s+back|gift\s+card|gst|hst|pst|visa|"
+    r"mastercard|cash|change|balancedue|points earned|net \d+|lb|kg|@)\b",
+    re.IGNORECASE
 )
-
 
 def flatten_receipt(receipt: dict) -> list[dict]:
     """
@@ -249,49 +249,56 @@ def flatten_receipt(receipt: dict) -> list[dict]:
         name  = str(item.get("productName") or "").strip()
         raw_price = str(item.get("price") or "").strip()
 
-        # 1. Normalize price: Remove '$', remove spaces, ensure uppercase
+        # 1. Normalize price
         price = raw_price.replace("$", "").replace(" ", "").upper()
-        
-        # 2. Fix potential digit check failure with commas AND add USD if missing
-        # We strip dots and commas just for the "is this a number?" check
         if price.replace(".", "").replace(",", "").isdigit() and "USD" not in price:
              price += "USD"
 
-        # --- ADD THESE DEBUG PRINTS ---
+        # 2. LOG EVERYTHING IMMEDIATELY
         print(f"DEBUG: [Flatten] Processing: '{name}' | Price: '{price}'")
         
         if not name or not price:
             print(f"DEBUG: [Flatten] REJECTED: Missing name or price")
+            continue
+
+        # 3. Noise reduction
+        if any(noise in name.upper() for noise in ["NET", "@", "LB", "PCS"]):
+            print(f"DEBUG: [Flatten] REJECTED: Unit/Weight noise")
+            continue
+            
+        if sum(c.isalpha() for c in name) < 2:
+            print(f"DEBUG: [Flatten] REJECTED: Not a product name (too few letters)")
             continue
             
         if not _VALID_PRICE_RE.match(price):
             print(f"DEBUG: [Flatten] REJECTED: Price '{price}' failed regex")
             continue
 
+        # 4. Content Filters
         if name == name.lower() and any(c.isalpha() for c in name):
             print(f"DEBUG: [Flatten] REJECTED: Lowercase/OCR noise")
             continue
-        # ------------------------------
+        
         if _FLAT_NON_PRODUCT.search(name):
             print(f"DEBUG: [Flatten] REJECTED: Non-product keyword")
             continue
 
-        # General fix 2: store name contained in product name → header leaked in.
         if store_lower and store_lower in name.lower():
-            print(f"DEBUG: [Flatten] REJECTED: Store name leak") # Updated label
+            print(f"DEBUG: [Flatten] REJECTED: Store name leak")
             continue
 
+        # 5. Add to valid items
         flat_items.append({
             "productName":  name,
             "purchaseDate": purchase_date,
-            "price":        price,
-            "amount":       item.get("amount") or "1",
-            "storeName":    store_name,
-            "latitude":     lat,
-            "longitude":    lon,
+            "price":         price,
+            "amount":        item.get("amount") or "1",
+            "storeName":     store_name,
+            "latitude":      lat,
+            "longitude":     lon,
         })
 
-    # General fix 3: substring dedup at same price.
+    # substring dedup at same price.
     # If name A is a substring of name B and they share a price, drop A (keep the longer one).
     price_groups: dict[str, list[dict]] = {}
     for item in flat_items:
@@ -727,7 +734,7 @@ def extract(image_data: "Path | bytes", display_name: str, user_name: str, model
             provider: str | None = None, use_cache: bool = True) -> dict:
     resolved_provider = (provider or config.LLM_PROVIDER).lower()
 
-#    FIX: Check if rt is actually defined before using it
+    # FIX: Check if rt is actually defined before using it
     if _RT_AVAILABLE and 'rt' in globals():
         # Railtracks path requires a file on disk — only available when image_data is a Path.
         if isinstance(image_data, bytes):
