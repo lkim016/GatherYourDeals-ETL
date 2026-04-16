@@ -62,9 +62,10 @@ def _send_discord_summary(avg_score, total_receipts, rows):
     )
 
     for row in rows[:5]:
-        img_name = str(row[0])[:15]
-        score_val = str(row[-1])
-        report_content += f"{img_name:<15} | {score_val:<6}\n"
+        # row is a dict: {'name': '...', 'score': ...}
+        img_name = str(row.get("name", "Unknown"))[:15]
+        score_val = str(row.get("score", "0"))
+        report_content += f"{img_name:<15} | {score_val:<6}%\n"
     
     report_content += "```"
 
@@ -247,16 +248,35 @@ def run_batch_evaluation(results: list[dict], total_input_count: int):
     # Borrowed from main(): Final Reporting
     success_count = len([r for r in results if r.get("success")])
     
+    # Final Reporting Section
     print("\n" + "="*30)
-    # Use the passed-in count here
     print(f"BATCH COMPLETE: {success_count}/{total_input_count} Succeeded.") 
     print("="*30 + "\n")
     
-    # 4. Final Reporting
-    if all_scores and len(all_scores) > 0:
+    if not all_scores:
+        print("EVAL: No scores were collected. Skipping summary report.")
+        return
+
+    try:
         avg = sum(all_scores) / len(all_scores)
-        _send_discord_summary(avg, len(all_scores), summary_rows)
+        
+        # Try sending to Discord, but don't crash if it fails
+        try:
+            # Check if the function actually exists in your imports
+            if '_send_discord_summary' in globals() or 'rpt' in globals():
+                 _send_discord_summary(avg, len(all_scores), summary_rows)
+            else:
+                print("⚠️ Warning: _send_discord_summary not found. Skipping notification.")
+        except Exception as discord_err:
+            print(f"⚠️ Discord notification failed: {discord_err}")
+
         print(f"Done. Average Accuracy: {avg:.1f}%")
+        
+    except ZeroDivisionError:
+        print("EVAL: Cannot calculate average (all_scores is empty).")
+    except Exception as final_err:
+        # This will tell us EXACTLY what is wrong (e.g., NameError: 'difflib' is not defined)
+        print(f"❌ CRITICAL EVAL ERROR: {type(final_err).__name__} - {final_err}")
 
 # ---------------------------------------------------------------------------
 # Log loader
