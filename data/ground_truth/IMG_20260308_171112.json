@@ -1,0 +1,137 @@
+[
+  {
+    "productName": "CS SOUR GUMMY RI",
+    "purchaseDate": "2025.12.14",
+    "price": "1.25CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "CS SWT GUMMY FSH",
+    "purchaseDate": "2025.12.14",
+    "price": "1.25CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "CS MXD GUMMIES",
+    "purchaseDate": "2025.12.14",
+    "price": "1.25CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "PC MULLED APPLE",
+    "purchaseDate": "2025.12.14",
+    "price": "3.00CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "PC BTRSWT DRK",
+    "purchaseDate": "2025.12.14",
+    "price": "8.50CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "PC MLK CHOC HAZL",
+    "purchaseDate": "2025.12.14",
+    "price": "8.50CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "COCONUT MILKRJ",
+    "purchaseDate": "2025.12.14",
+    "price": "1.50CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "SURAJ BAY LEAF",
+    "purchaseDate": "2025.12.14",
+    "price": "1.49CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "PC ORNG JUICE NP",
+    "purchaseDate": "2025.12.14",
+    "price": "3.88CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "PORK SOUP BAO",
+    "purchaseDate": "2025.12.14",
+    "price": "3.99CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "BASSE EDAM POWMX",
+    "purchaseDate": "2025.12.14",
+    "price": "5.50CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "BASSE EXT FRUTMX",
+    "purchaseDate": "2025.12.14",
+    "price": "5.50CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "DRUMSTICKS",
+    "purchaseDate": "2025.12.14",
+    "price": "12.08CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "PC BRD CINN RSN",
+    "purchaseDate": "2025.12.14",
+    "price": "2.85CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  },
+  {
+    "productName": "FIRM TOFU",
+    "purchaseDate": "2025.12.14",
+    "price": "2.79CAD",
+    "amount": "1",
+    "storeName": "Brandon's No Frills",
+    "latitude": 49.2863,
+    "longitude": -123.1396
+  }
+]

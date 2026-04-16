@@ -1,0 +1,29 @@
+[
+  {
+    "productName": "BLUEBERRIES 12OZ",
+    "purchaseDate": "2026.01.31",
+    "price": "4.00CAD",
+    "amount": "12oz",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2829,
+    "longitude": -123.1343
+  },
+  {
+    "productName": "STRAWBERRIES 1LB",
+    "purchaseDate": "2026.01.31",
+    "price": "3.00CAD",
+    "amount": "1lb",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2829,
+    "longitude": -123.1343
+  },
+  {
+    "productName": "PC SPINACH TORT",
+    "purchaseDate": "2026.01.31",
+    "price": "4.49CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2829,
+    "longitude": -123.1343
+  }
+]

@@ -54,7 +54,8 @@ def _call_clod(messages: List[Dict[str, str]], model: str) -> Dict[str, Any]:
     """Uses httpx to hit the Clod API directly (as per config.CLOD_API_URL)."""
     headers = {
         "Authorization": f"Bearer {config.CLOD_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "X-Project-Name": "etl-project"
     }
     payload = {
         "model": model,
@@ -78,21 +79,43 @@ def _normalize_openai(resp: Any) -> NormalizedResponse:
 
 def _normalize_clod(resp: Dict[str, Any]) -> NormalizedResponse:
     """Extracts data from the trinity-mini / clod response structure."""
+
+    # ADD THIS LINE TO YOUR CODE TEMPORARILY
+    print(f"DEBUG: RAW RESP FROM CLOD: {resp}")
     try:
-        # Based on your debug: resp['choices'][0]['message']['content']
-        choice = resp["choices"][0]
-        message = choice.get("message", {})
-        
-        raw_content = message.get("content", "")
-        
-        # Based on your debug: resp['usage'] keys are 'prompt_tokens' and 'completion_tokens'
-        usage = resp.get("usage", {})
-        
+        # --- PATH A: OpenAI/Gemini Style (The 'choices' structure) ---
+        if "choices" in resp:
+            choice = resp["choices"][0]
+            message = choice.get("message", {})
+            raw_content = message.get("content", "")
+            
+            usage = resp.get("usage", {})
+            input_tokens = usage.get("prompt_tokens", 0)
+            output_tokens = usage.get("completion_tokens", 0)
+
+        # --- PATH B: Anthropic/Claude Style (The 'content' structure) ---
+        elif "content" in resp:
+            # Anthropic returns a list of blocks; we want the text from the first one
+            if isinstance(resp["content"], list) and len(resp["content"]) > 0:
+                raw_content = resp["content"][0].get("text", "")
+            else:
+                raw_content = resp.get("content", "") # Fallback for string-only
+            
+            usage = resp.get("usage", {})
+            # Anthropic uses different naming for tokens
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+
+        else:
+            print(f"  [LLM]  Normalization failed for Clod: Unrecognized JSON structure.")
+            return None
+
         return {
             "raw": raw_content,
-            "input_tokens": usage.get("prompt_tokens", 0),
-            "output_tokens": usage.get("completion_tokens", 0)
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens
         }
+
     except (KeyError, IndexError, TypeError) as e:
         print(f"  [LLM]  Normalization failed for Clod: {e}")
         return None
@@ -491,7 +514,7 @@ def _repair_failed_items(
     return repaired
 
 
-def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[dict]:
+def validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[dict]:
     """
     Deterministic post-processing rules applied after LLM extraction.
 
@@ -528,6 +551,10 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
         if llm_config.ADDRESS_LEAK.search(name):
             continue
 
+        # NEW: Drop loyalty/points items
+        if re.search(r"\b(optimum|points|rewards|membership)\b", name, re.IGNORECASE):
+            continue
+
         # Drop names that are too short to be a real product (single chars, "SC", "R")
         # or are purely numeric (OCR noise like "0.41" ending up as a product name).
         if len(name) <= 2 or re.fullmatch(r"[\d\s\.\,\-]+", name):
@@ -541,7 +568,7 @@ def _validate_and_fix_items(items: list[dict], currency: str = "USD") -> list[di
         # Drop store-metadata lines that models occasionally extract as items:
         # street addresses ("123 Main St"), phone-number prefixes ("(604)"),
         # "Welcome #", "Ref. #" variants, and lines that are mostly digits/punctuation.
-        if re.search(r"\b(welcome|davie|street|avenue|blvd|suite|unit|floor)\b", name, re.IGNORECASE):
+        if re.search(r"\b(welcome|street|avenue|blvd|suite|unit|floor)\b", name, re.IGNORECASE):
             continue
 
         # Drop items whose name is predominantly CJK characters (bilingual receipt

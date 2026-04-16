@@ -1,0 +1,47 @@
+[
+  {
+    "productName": "KTCHN BGS RGLR",
+    "purchaseDate": "2026.03.02",
+    "price": "12.99CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  },
+  {
+    "productName": "GLAD C WRAP 90M",
+    "purchaseDate": "2026.03.02",
+    "price": "7.49CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  },
+  {
+    "productName": "GRD A LRG BRWN",
+    "purchaseDate": "2026.03.02",
+    "price": "4.04CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  },
+  {
+    "productName": "PC VEG MEDLEY",
+    "purchaseDate": "2026.03.02",
+    "price": "3.00CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  },
+  {
+    "productName": "FIRM TOFU",
+    "purchaseDate": "2026.03.02",
+    "price": "3.49CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  }
+]

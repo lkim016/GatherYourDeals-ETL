@@ -12,7 +12,7 @@
     "productName": "Whole Milk (1 gallon)",
     "purchaseDate": "2025.05.24",
     "price": "3.20USD",
-    "amount": "1",
+    "amount": "1gallon",
     "storeName": "Farm & Table Market",
     "latitude": 39.9993,
     "longitude": -75.0093
@@ -21,7 +21,7 @@
     "productName": "Bread (loaf)",
     "purchaseDate": "2025.05.24",
     "price": "2.50USD",
-    "amount": "1",
+    "amount": "1loaf",
     "storeName": "Farm & Table Market",
     "latitude": 39.9993,
     "longitude": -75.0093
@@ -30,7 +30,7 @@
     "productName": "Eggs (dozen)",
     "purchaseDate": "2025.05.24",
     "price": "2.80USD",
-    "amount": "1",
+    "amount": "1dozen",
     "storeName": "Farm & Table Market",
     "latitude": 39.9993,
     "longitude": -75.0093
@@ -66,7 +66,7 @@
     "productName": "Cheddar Cheese (8 oz)",
     "purchaseDate": "2025.05.24",
     "price": "4.00USD",
-    "amount": "1",
+    "amount": "8oz",
     "storeName": "Farm & Table Market",
     "latitude": 39.9993,
     "longitude": -75.0093
@@ -75,7 +75,7 @@
     "productName": "Orange Juice (1 liter)",
     "purchaseDate": "2025.05.24",
     "price": "3.50USD",
-    "amount": "1",
+    "amount": "1liter",
     "storeName": "Farm & Table Market",
     "latitude": 39.9993,
     "longitude": -75.0093

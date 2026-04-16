@@ -55,6 +55,7 @@ from src import etl as _etl
 from src.core import config
 from src.logs import etl_logger as el
 from src.logs import reporting as rpt
+from src.utils import test
 
 import gdown
 from google.oauth2.credentials import Credentials
@@ -356,9 +357,7 @@ async def _process_one(
             data = await asyncio.to_thread(
                 _etl.extract, image_bytes, display_name, _DEFAULT_USER, model, run_id, provider
             )
-            
-            # Capture the cost from the extraction metadata
-            total_cost = data.get("llm_cost_usd", 0.0)
+
         except Exception as exc:
             error_msg = f"extraction: {exc}"
             return {
@@ -424,35 +423,10 @@ async def _process_one(
             cost_usd=total_cost
         )
 
-# ---------------------------------------------------------------------------
-# Mock pipeline helper (Experiment 1 Phase B — zero API cost load test)
-# ---------------------------------------------------------------------------
-
-# Lognormal params calibrated to 2026-03-31 baseline (OCR P50=5000ms P95=11000ms,
-# LLM P50=3718ms P95=10080ms, geocode P50=500ms P95=1200ms)
-def _ln_params(p50_ms: float, p95_ms: float) -> tuple[float, float]:
-    mu = math.log(p50_ms)
-    sigma = (math.log(p95_ms) - mu) / 1.645
-    return mu, sigma
-
-
-_MOCK_OCR_MU,  _MOCK_OCR_SIG  = _ln_params(5_000,  11_000)
-_MOCK_LLM_MU,  _MOCK_LLM_SIG  = _ln_params(3_718,  10_080)
-_MOCK_GEO_MU,  _MOCK_GEO_SIG  = _ln_params(500,     1_200)
-
-
-async def _run_mock_pipeline() -> None:
-    """Sleep through a simulated OCR → LLM → geocode pipeline. No API calls."""
-    ocr_ms  = random.lognormvariate(_MOCK_OCR_MU,  _MOCK_OCR_SIG)
-    llm_ms  = random.lognormvariate(_MOCK_LLM_MU,  _MOCK_LLM_SIG)
-    geo_ms  = random.lognormvariate(_MOCK_GEO_MU,  _MOCK_GEO_SIG)
-    await asyncio.sleep((ocr_ms + llm_ms + geo_ms) / 1_000)
-
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
-
 
 @app.post(
     "/etl",
@@ -547,11 +521,25 @@ async def run_etl(
     if not file_pairs:
         return JSONResponse(status_code=400, content={"success": False, "message": "No images found"})
 
-    # 4. UNIFIED EXECUTION (The DRY Phase)
+    # 4. UNIFIED EXECUTION (The DRY Phase) - Exp 1b
+    # if mock:
+    #     for _ in range(len(file_pairs)):
+    #         await test.run_mock_pipeline()
+    #     return JSONResponse(content={"success": True, "message": f"Mocked {len(file_pairs)} images"})
+    
+    # 4. UNIFIED EXECUTION (The DRY Phase) - Exp 1C
     if mock:
-        for _ in range(len(file_pairs)):
-            await _run_mock_pipeline()
-        return JSONResponse(content={"success": True, "message": f"Mocked {len(file_pairs)} images"})
+        # Create a list of "tasks" to run at the same time
+        tasks = [test.run_mock_pipeline() for _ in range(len(file_pairs))]
+        
+        # Fire them all off concurrently!
+        # The semaphores inside _run_mock_pipeline will handle the "waiting in line."
+        await asyncio.gather(*tasks)
+        
+        return JSONResponse(content={
+            "success": True, 
+            "message": f"Concurrently mocked {len(file_pairs)} images with backpressure."
+        })
 
     # Throttler
     _ADI_SEM = asyncio.Semaphore(5)

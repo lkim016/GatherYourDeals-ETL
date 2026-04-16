@@ -40,7 +40,8 @@ def _send_discord_summary(avg_score, total_receipts, rows):
     Sends a formatted summary of the ETL evaluation to a Discord Webhook.
     """
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
-    if not webhook_url:
+    # 2. THE "DISABLED" CHECK (The Safe Exit)
+    if not webhook_url or webhook_url.upper() == "DISABLED":
         print("DEBUG: No DISCORD_WEBHOOK_URL found. Skipping Discord notification.")
         return
 
@@ -70,6 +71,7 @@ def _send_discord_summary(avg_score, total_receipts, rows):
     report_content += "```"
 
     try:
+        print(f"EVAL: Sending summary to Discord (Accuracy: {avg_accuracy}%)")
         response = requests.post(webhook_url, json={"content": report_content}, timeout=10)
         response.raise_for_status()
     except Exception as e:
@@ -156,127 +158,91 @@ def _score_single_pair(pred_path: Path, gt_path: Path):
     return score, {"name": gt_path.stem, "score": round(score, 2)}
 
 
+def get_fuzzy_key(filename):
+    """
+    Normalizes filenames into a common 'stem'.
+    'gdown_IMG_2026.jpg.json' -> 'IMG_2026'
+    'IMG_2026.json'           -> 'IMG_2026'
+    """
+    # 1. Get the first part of the name before any dots
+    name_part = str(filename).split('.')[0]
+    
+    # 2. Extract the 'IMG_数字' pattern
+    # The regex r"IMG_?\d+" handles both 'IMG_123' and 'IMG123'
+    match = re.search(r"(IMG_?\d+)", name_part)
+    
+    return match.group(1) if match else name_part
+
 def run_batch_evaluation(results: list[dict], total_input_count: int):
-    """
-    Scans the local container disk for the just-generated outputs
-    and compares them to the GitHub-pushed ground truth.
-    """
-    # 1. Safety check on results
+    # 1. Safety check
     valid_results = [r for r in results if "model" in r]
     if not valid_results:
-        print("EVAL: No successful results with model info found to score.")
+        print("EVAL: No successful results found.")
         return
 
     # 2. Setup Paths
     res = valid_results[0]
     model_slug = res['model'].split("/")[-1].lower()
-    
-    # Path to what we just saved in the container
     target_dir = config.OUTPUT_DIR / f"{res['provider']}-{model_slug}"
-    # Path to what you pushed to GitHub
     gt_dir = config.GROUND_TRUTH_DIR
 
-    print(f"📊 EVAL: Comparing {target_dir} vs {gt_dir}")
+    if not gt_dir.exists() or not target_dir.exists():
+        print("EVAL: Folders missing.")
+        return
 
-    # 3. Check if directories exist
-    if not gt_dir.exists():
-        print(f"EVAL: Ground Truth folder missing at {gt_dir}")
-        return
-    if not target_dir.exists():
-        print(f"EVAL: Target folder missing at {target_dir}")
-        return
-    
-    print(f"DEBUG: Found {len(list(target_dir.glob('*.json')))} files in target_dir")
-    
-    # 1. Pre-load Ground Truths into memory (The "Vault")
-    gt_vault = []
-    for gt_file in gt_dir.glob("*.json"):
-        try:
-            gt_vault.append({
-                "path": gt_file,
-                "data": json.loads(gt_file.read_text())
-            })
-        except Exception: continue
+    # --- NEW: STEP A: PRE-MAP GROUND TRUTH VIA FUZZY KEY ---
+    # We build a dictionary { 'IMG_123': Path('.../IMG_123.json') }
+    gt_map = {get_fuzzy_key(f.name): f for f in gt_dir.glob("*.json")}
+    print(f"DEBUG: Mapped {len(gt_map)} Ground Truth files.")
 
     all_scores = []
     summary_rows = []
 
-    # --- CLEANUP STEP ---
-    # Use target_dir directly to find and remove "Poison Pills"
-    for f in target_dir.glob("*.json"):
-        try:
-            content = json.loads(f.read_text())
-            # If it's the big dictionary with 'storeName' at the top, it's the OLD format
-            if isinstance(content, dict) and "storeName" in content:
-                print(f"EVAL: Removing old dict-style file {f.name}")
-                f.unlink()
-        except:
-            f.unlink() # Delete corrupt files
-
-
-    # 2. Iterate through generated outputs and match them
+    # --- STEP B: ITERATE THROUGH OUTPUTS ---
     for output_file in target_dir.glob("*.json"):
         print(f"DEBUG: Scanning file {output_file.name}")
+        
+        # 1. Cleanup "Poison Pills" (Old formats or empty files)
         try:
-            raw_output = json.loads(output_file.read_text())
-            
-            # NORMALIZATION: If your ETL outputted the dict, extract the list for the evaluator
-            if isinstance(raw_output, list):
-                output_data = raw_output
-            elif isinstance(raw_output, dict):
-                output_data = raw_output.get("items", [])
-            else:
-                continue # Skip weird formats
+            content = json.loads(output_file.read_text())
+            if isinstance(content, dict) and "storeName" in content:
+                output_file.unlink() # Delete old format
+                continue
+        except:
+            output_file.unlink()
+            continue
 
-            # Now compare list vs list
-            best_match = max(gt_vault, key=lambda x: calculate_match_score(output_data, x["data"]))
-            winning_score = calculate_match_score(output_data, best_match["data"])
+        # 2. FUZZY MATCHING (The "Standardization" Logic)
+        out_key = get_fuzzy_key(output_file.name)
+        gt_file = gt_map.get(out_key)
 
-            if winning_score > 40:
-                print(f"✅ Match Found: {output_file.name} -> {best_match['path'].name}")
-                
-                # 3. SCORE THE MATCH IMMEDIATELY
-                # Instead of passing directories, pass the specific file objects
-                row_score, row_data = _score_single_pair(output_file, best_match['path'])
+        if gt_file:
+            print(f"✅ Match Found: {output_file.name} -> {gt_file.name}")
+            try:
+                # 3. SCORE THE MATCH
+                # Now that we have the specific pair, we score them directly
+                row_score, row_data = _score_single_pair(output_file, gt_file)
                 all_scores.append(row_score)
                 summary_rows.append(row_data)
-            else:
-                print(f"⚠️ No reliable GT match for {output_file.name} (Score: {winning_score})")
-        except Exception as e:
-            print(f"Error processing {output_file.name}: {e}")
+            except Exception as e:
+                print(f"❌ Error scoring {output_file.name}: {e}")
+        else:
+            # If no key match, then and ONLY then do we fallback to the slow check
+            # OR we just warn the user.
+            print(f"⚠️ No reliable GT match for {output_file.name} (Key: {out_key})")
 
-    # Borrowed from main(): Final Reporting
+    # --- STEP C: FINAL REPORTING ---
     success_count = len([r for r in results if r.get("success")])
-    
-    # Final Reporting Section
     print("\n" + "="*30)
     print(f"BATCH COMPLETE: {success_count}/{total_input_count} Succeeded.") 
     print("="*30 + "\n")
     
-    if not all_scores:
-        print("EVAL: No scores were collected. Skipping summary report.")
-        return
-
-    try:
+    if all_scores:
         avg = sum(all_scores) / len(all_scores)
-        
-        # Try sending to Discord, but don't crash if it fails
-        try:
-            # Check if the function actually exists in your imports
-            if '_send_discord_summary' in globals() or 'rpt' in globals():
-                 _send_discord_summary(avg, len(all_scores), summary_rows)
-            else:
-                print("⚠️ Warning: _send_discord_summary not found. Skipping notification.")
-        except Exception as discord_err:
-            print(f"⚠️ Discord notification failed: {discord_err}")
-
         print(f"Done. Average Accuracy: {avg:.1f}%")
-        
-    except ZeroDivisionError:
-        print("EVAL: Cannot calculate average (all_scores is empty).")
-    except Exception as final_err:
-        # This will tell us EXACTLY what is wrong (e.g., NameError: 'difflib' is not defined)
-        print(f"❌ CRITICAL EVAL ERROR: {type(final_err).__name__} - {final_err}")
+        # Handle Discord reporting...
+    else:
+        print("EVAL: No scores were collected.")
 
 # ---------------------------------------------------------------------------
 # Log loader
@@ -417,50 +383,54 @@ def _compute_eval(output_dir: Path, gt_dir: Path = config.GROUND_TRUTH_DIR):
               "Items", "Name match", "Price match", "Amount match", "Score")
     check = lambda v: "✓" if v else "✗"
 
-    # 1. Index all available output files by their 'image stem'
-    # This handles cases where the output filename isn't an exact match to the GT
+    # --- STEP 1: INDEX OUTPUTS BY FUZZY KEY ---
+    # Instead of a list, we make a map: { 'IMG_123': Path('gdown_IMG_123.jpg.json') }
+    # This is the "Phone Book" that solves the gdown naming issue.
     all_out_files = list(output_dir.glob("*.json"))
+    output_index = {get_fuzzy_key(p.name): p for p in all_out_files}
     
-    # 2. Get your Ground Truth files
-    gt_files = {p.stem: p for p in gt_dir.glob("*.json")} if gt_dir.exists() else {}
+    # --- STEP 2: GET GROUND TRUTH FILES ---
+    # We still iterate through GT as the source of truth
+    gt_paths = list(gt_dir.glob("*.json")) if gt_dir.exists() else []
     rows, scores = [], []
 
-    for stem, gt_path in sorted(gt_files.items()):
-        gt_text = gt_path.read_text(encoding="utf-8").strip()
-        if not gt_text:
-            continue
-        tru_list = json.loads(gt_text)
-        if not isinstance(tru_list, list):
-            tru_list = [tru_list]
-        gt_n = len(tru_list)
-
-        # 3. FLEXIBLE MATCHING:
-        # Look for a file that contains the stem, or matches it exactly
-        # This is how batch evaluators handle "gdrive_XYZ.json" vs "XYZ.json"
-        out_path = next((p for p in all_out_files if stem in p.name), None)
-
-        if not out_path or not out_path.exists():
-            rows.append((stem + ".jpg", gt_n, "—", "—", "—", "—", "—", "—", "—", "—", "missing"))
-            continue
-
-        out_text = out_path.read_text(encoding="utf-8").strip()
+    for gt_path in sorted(gt_paths):
+        # Get the clean ID for this GT file
+        stem = get_fuzzy_key(gt_path.name)
         
-        # 4. ROBUST PARSING (The "List vs Dict" fix)
         try:
-            raw_data = json.loads(out_text)
-            print(f"DEBUG EVAL: Processing {stem} | Data Type: {type(raw_data)}")
+            gt_text = gt_path.read_text(encoding="utf-8").strip()
+            if not gt_text: continue
             
-            # Extract the items list regardless of whether the file is Option 1 or Option 2
+            tru_list = json.loads(gt_text)
+            if not isinstance(tru_list, list):
+                tru_list = [tru_list]
+            gt_n = len(tru_list)
+
+            # --- STEP 3: INSTANT FUZZY LOOKUP ---
+            # No 'next()' needed. We just check our index.
+            out_path = output_index.get(stem)
+
+            if not out_path or not out_path.exists():
+                rows.append((stem + ".jpg", gt_n, "—", "—", "—", "—", "—", "—", "—", "—", "missing"))
+                continue
+
+            # --- STEP 4: ROBUST PARSING ---
+            out_text = out_path.read_text(encoding="utf-8").strip()
+            raw_data = json.loads(out_text)
+            
+            # Extract items list (handles Option 1 and Option 2 formats)
             if isinstance(raw_data, dict) and "items" in raw_data:
                 out_list = raw_data["items"]
             elif isinstance(raw_data, list):
                 out_list = raw_data
             else:
-                out_list = [raw_data] # Fallback for single-object files
+                out_list = [raw_data] 
             
+            # --- STEP 5: SCORE & RECORD ---
             s = _score_receipt(out_list, tru_list)
-
             scores.append(s["overall"])
+            
             rows.append((
                 stem + ".jpg", gt_n,
                 check(s["storeName"]), check(s["purchaseDate"]),
@@ -471,8 +441,8 @@ def _compute_eval(output_dir: Path, gt_dir: Path = config.GROUND_TRUTH_DIR):
             ))
         
         except Exception as e:
-            print(f"Error processing {stem}.json: {e}")
-            continue # Skip the bad file and keep going!
+            print(f"Error processing match for {stem}: {e}")
+            continue 
 
     return header, rows, scores
         
@@ -498,7 +468,7 @@ def eval_receipts(output_dir: Path = config.OUTPUT_DIR, gt_dir: Path = config.GR
     ]
 
     for d in dirs_to_eval:
-        header, rows, scores = compute_eval(d, gt_dir)
+        header, rows, scores = _compute_eval(d, gt_dir)
         if not rows:
             continue
         label = d.name if provider_dirs else "output"
@@ -845,7 +815,7 @@ def baseline_report():
         if not prov_dir.exists():
             eval_md += [f"### {prov_label}", "", f"_No output at `{prov_dir}/`_", ""]
             continue
-        eval_header, eval_rows, eval_scores = compute_eval(output_dir=prov_dir)
+        eval_header, eval_rows, eval_scores = _compute_eval(output_dir=prov_dir)
         if not eval_rows:
             continue
         any_eval = True

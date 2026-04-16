@@ -1,0 +1,20 @@
+[
+  {
+    "productName": "LEMONS",
+    "purchaseDate": "2026.02.21",
+    "price": "0.98CAD",
+    "amount": "2",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2862,
+    "longitude": -123.1365
+  },
+  {
+    "productName": "MANDARINS BABY SUGAR",
+    "purchaseDate": "2026.02.21",
+    "price": "2.84CAD",
+    "amount": "2.87 lb",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2862,
+    "longitude": -123.1365
+  }
+]

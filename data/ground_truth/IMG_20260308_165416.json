@@ -1,0 +1,47 @@
+[
+  {
+    "productName": "AVOCADO",
+    "purchaseDate": "2026.02.01",
+    "price": "1.98CAD",
+    "amount": "2",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "BAG(3) ROMAINE HEARTS",
+    "purchaseDate": "2026.02.01",
+    "price": "3.99CAD",
+    "amount": "1",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "CILANTRO",
+    "purchaseDate": "2026.02.01",
+    "price": "1.99CAD",
+    "amount": "1",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "EVERCRISP APPLE",
+    "purchaseDate": "2026.02.01",
+    "price": "7.46CAD",
+    "amount": "5.01",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "LIME",
+    "purchaseDate": "2026.02.01",
+    "price": "1.00CAD",
+    "amount": "4",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  }
+]

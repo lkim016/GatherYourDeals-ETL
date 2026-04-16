@@ -1,0 +1,29 @@
+[
+  {
+    "productName": "EGGPLANT",
+    "purchaseDate": "2026.01.29",
+    "price": "1.99CAD",
+    "amount": "1",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "JUMBO CARROTS",
+    "purchaseDate": "2026.01.29",
+    "price": "1.68CAD",
+    "amount": "2.44 lb",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "ZUCCHINI",
+    "purchaseDate": "2026.01.29",
+    "price": "1.46CAD",
+    "amount": "0.98 lb",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  }
+]

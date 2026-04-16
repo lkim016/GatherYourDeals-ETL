@@ -221,13 +221,26 @@ def flatten_receipt(receipt: dict) -> list[dict]:
     name at the same price already exists (e.g. "GRD A LRG" when "GRD A LRG BRWN MRJ"
     is also present at the same price).
     """
+    # --- 1. GET AND NORMALIZE DATE ---
+    raw_date = receipt.get("purchaseDate")
+    
+    # If date is missing, "None", or empty, fallback to TODAY
+    if not raw_date or str(raw_date).lower() in ["none", "null", ""]:
+        purchase_date = datetime.now().strftime("%Y-%m-%d")
+        print(f"DEBUG: [Flatten] Date missing, defaulting to {purchase_date}")
+    else:
+        # Normalize dots/slashes to dashes (e.g. 2026.03.26 -> 2026-03-26)
+        purchase_date = re.sub(r"[\./]", "-", str(raw_date))
+
+    # --- 2. GET OTHER METADATA ---
     store_name    = receipt.get("storeName") or None
-    purchase_date = receipt.get("purchaseDate") or None
     lat           = receipt.get("latitude")
     lon           = receipt.get("longitude")
     store_lower   = (store_name or "").lower()
 
     flat_items: list[dict] = []
+    
+    # loop through receipt items
     for item in receipt.get("items", []):
         name  = str(item.get("productName") or "").strip()
         raw_price = str(item.get("price") or "").strip()
@@ -428,7 +441,7 @@ def structure(ocr_text: str, display_name: str, user_name: str,
         result["currency"] = currency
 
         # Tier 2+3 — deterministic post-processing
-        result["items"] = llm._validate_and_fix_items(result.get("items", []), currency)
+        result["items"] = llm.validate_and_fix_items(result.get("items", []), currency)
 
         # Tier 2b — recover prices for weight-priced items (e.g. "1.160 kg @ $1.72/kg 2.00")
         # Do this before the null-price repair so weight items don't consume repair budget.
@@ -572,34 +585,26 @@ if _RT_AVAILABLE:
         # --- 4. VALIDATION & CLEANING ---
         clean_items, extraction_is_valid = validate_extraction(raw_items, raw_store)
 
-        # --- 5. STRICT FILTERING (No 0s, No Unknowns) ---
+        # --- 5. STRICT FILTERING (Refactored) ---
         final_compliant_items = []
         for item in clean_items:
-            name = item.get("productName")
-            
-            # 1. KEEP PRICE AS STRING: Preserve "10.76USD"
-            price = str(item.get("price") or "").strip()
-            
-            # 2. CLEAN AMOUNT: Handle strings like "1b" or "2pk"
-            amount_str = str(item.get("amount") or "1").strip()
-            
-            # 3. QUALITY GATE:
-            # We check if name exists and isn't "Unknown"
-            # We check if price exists and isn't just "0" or empty
-            has_name = name and name.lower() != "unknown item"
-            has_price = price and price not in ["0", "0.0", "0.00"]
-
-            if has_name and has_price:
-                compliant_item = {
-                    "productName": name,
-                    "purchaseDate": item.get("purchaseDate") or raw_date,
-                    "price": price, # Still "10.76USD"
-                    "amount": amount_str,
-                    "storeName": item.get("storeName") or raw_store,
-                    "latitude": lat,
-                    "longitude": lon
-                }
-                final_compliant_items.append(compliant_item)
+            try:
+                # This one line replaces all your manual "has_name" and "has_price" checks
+                valid_item = ocr_srvc.DBItem(
+                    productName=item.get("productName"),
+                    purchaseDate=item.get("purchaseDate") or raw_date,
+                    price=str(item.get("price") or "").strip(),
+                    amount=str(item.get("amount") or "1").strip(),
+                    storeName=item.get("storeName") or raw_store,
+                    latitude=lat,
+                    longitude=lon
+                )
+                # If we got here, it's a valid item for Yue's DB
+                final_compliant_items.append(valid_item.model_dump())
+                
+            except ValueError as e:
+                # Log why it was dropped (e.g., "Invalid product name")
+                continue
 
         # --- 6. CONDITIONAL SUCCESS ---
         items_count = len(final_compliant_items)
@@ -615,11 +620,12 @@ if _RT_AVAILABLE:
         print(f"REPORT_METRIC: {display_name} cost was ${round(total_cost, 8)}")
         
         # 2. SAVE THE CLEAN LIST
+        display_name = Path(ctx.display_name).stem
         model_slug = ctx.model.split("/")[-1].lower()
         provider_out_dir = config.OUTPUT_DIR / f"{ctx.provider}-{model_slug}"
         provider_out_dir.mkdir(parents=True, exist_ok=True)
         
-        out_file = provider_out_dir / (ctx.display_name + ".json")
+        out_file = provider_out_dir / (display_name + ".json")
         out_file.write_text(json.dumps(result_to_save, indent=2, ensure_ascii=False))
 
         # 3. UPDATE RESULT AND BROADCAST
@@ -659,17 +665,21 @@ def validate_extraction(raw_items: list[dict], store_name: str, currency: str = 
     Cleans extracted items and determines if the overall result is high-quality.
     Returns: (list of cleaned items, is_valid_boolean)
     """
-    # --- PRE-FLIGHT TYPE FIX ---
-    # Ensure every price/amount is a string so .strip() doesn't crash LLM internal logic
+    # 1. CLEANING: Ensure every price is a PURE numeric string for the validator
     for item in raw_items:
-        if "price" in item:
-            item["price"] = str(item["price"] if item["price"] is not None else "0")
+        if "price" in item and item["price"] is not None:
+            # Strip everything but digits and dots
+            item["price"] = re.sub(r'[^\d.]', '', str(item["price"])) or "0"
+        else:
+            item["price"] = "0"
+            
         if "amount" in item:
             item["amount"] = str(item["amount"] if item["amount"] is not None else "1")
 
-    # 1. Now it's safe to run your thorough Rule 1-9 + Dedup scrubbing
-    fixed_items = llm._validate_and_fix_items(raw_items, currency)
-    
+    # 2. VALIDATION: Run the thorough scrubbing on PURE numbers
+    fixed_items = llm.validate_and_fix_items(raw_items, currency)
+
+    # --- REST OF YOUR HEURISTICS ---
     original_count = len(raw_items)
     fixed_count = len(fixed_items)
 

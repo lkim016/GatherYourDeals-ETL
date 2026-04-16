@@ -1,0 +1,20 @@
+[
+  {
+    "productName": "GRD A LRG BRWN",
+    "purchaseDate": "2026.02.05",
+    "price": "4.04CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  },
+  {
+    "productName": "GRN & PRTN BREAD",
+    "purchaseDate": "2026.02.05",
+    "price": "4.00CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  }
+]

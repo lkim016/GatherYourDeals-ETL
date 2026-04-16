@@ -1,0 +1,29 @@
+[
+  {
+    "productName": "DRISCOLL STRAWBERRY",
+    "purchaseDate": "2026.03.04",
+    "price": "2.99CAD",
+    "amount": "1",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "EVERCRISP APPLE",
+    "purchaseDate": "2026.03.04",
+    "price": "3.09CAD",
+    "amount": "1.83 lb",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "JUMBO CARROTS",
+    "purchaseDate": "2026.03.04",
+    "price": "0.62CAD",
+    "amount": "0.78 lb",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  }
+]

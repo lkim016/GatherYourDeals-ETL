@@ -1,0 +1,20 @@
+[
+  {
+    "productName": "TOMATO ROMA",
+    "purchaseDate": "2026.02.10",
+    "price": "2.06CAD",
+    "amount": "0.470 kg",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  },
+  {
+    "productName": "MANGO RED",
+    "purchaseDate": "2026.02.10",
+    "price": "1.88CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  }
+]

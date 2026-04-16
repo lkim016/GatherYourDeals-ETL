@@ -25,7 +25,8 @@ def _send_to_discord(entry: dict):
     """
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
     
-    if not webhook_url:
+    # 2. THE "DISABLED" CHECK (The Safe Exit)
+    if not webhook_url or webhook_url.upper() == "DISABLED":
         print("DEBUG: No DISCORD_WEBHOOK_URL found. Skipping Discord notification.")
         return
 
@@ -45,6 +46,7 @@ def _send_to_discord(entry: dict):
     }
     
     try:
+        print(f"EVAL: Sending LLM log to Discord")
         requests.post(webhook_url, json=payload, timeout=5)
     except Exception as e:
         print(f"Failed to forward log to Discord: {e}")
@@ -58,7 +60,7 @@ def _log(entry: dict):
 
     # 2. Save to local file (Optional - only if you have a Volume mounted)
     # If no Volume is mounted, this file will be lost on next deploy
-    log_file = config.LOGS_DIR / f"etl_{datetime.now().strftime('%Y%m')}.jsonl"
+    log_file = config.LOGS_DIR / f"etl_{datetime.now().strftime('%Y-%m-%d')}.jsonl"
     try:
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")

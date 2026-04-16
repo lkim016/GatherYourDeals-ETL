@@ -1,0 +1,29 @@
+[
+  {
+    "productName": "HMGZD MILK 3.25%",
+    "purchaseDate": "2026.01.24",
+    "price": "3.06CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  },
+  {
+    "productName": "EARO SOFRESH OAT",
+    "purchaseDate": "2026.01.24",
+    "price": "3.79CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  },
+  {
+    "productName": "PC SPINACH TORT",
+    "purchaseDate": "2026.01.24",
+    "price": "3.50CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  }
+]

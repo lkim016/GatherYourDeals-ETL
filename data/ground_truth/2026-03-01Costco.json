@@ -1,0 +1,137 @@
+[
+  {
+    "productName": "VICKY JALAPE",
+    "purchaseDate": "2026.03.01",
+    "price": "7.99USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "ORG CELERY",
+    "purchaseDate": "2026.03.01",
+    "price": "6.49USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "KS BUF WINGS",
+    "purchaseDate": "2026.03.01",
+    "price": "16.99USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "CONTACT 2PK",
+    "purchaseDate": "2026.03.01",
+    "price": "11.99USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "4LB HONYCRSP",
+    "purchaseDate": "2026.03.01",
+    "price": "9.99USD",
+    "amount": "4lb",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "GREEN GRAPES",
+    "purchaseDate": "2026.03.01",
+    "price": "8.99USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "BANANAS",
+    "purchaseDate": "2026.03.01",
+    "price": "1.99USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "SHRIMP MANDU",
+    "purchaseDate": "2026.03.01",
+    "price": "16.59USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "BEEF ROLLS",
+    "purchaseDate": "2026.03.01",
+    "price": "14.99USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "CHICK SKEWRS",
+    "purchaseDate": "2026.03.01",
+    "price": "17.99USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "GREEK YOGURT",
+    "purchaseDate": "2026.03.01",
+    "price": "7.49USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "ORG FR EGGS",
+    "purchaseDate": "2026.03.01",
+    "price": "7.69USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "RED GRAPES",
+    "purchaseDate": "2026.03.01",
+    "price": "8.49USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "ORG BROC 2LB",
+    "purchaseDate": "2026.03.01",
+    "price": "6.49USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  },
+  {
+    "productName": "GREEK SALAD",
+    "purchaseDate": "2026.03.01",
+    "price": "10.99USD",
+    "amount": "1",
+    "storeName": "Costco Wholesale",
+    "latitude": 33.8825,
+    "longitude": -117.7619
+  }
+]

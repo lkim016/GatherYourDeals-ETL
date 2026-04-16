@@ -1,0 +1,38 @@
+[
+  {
+    "productName": "BAG YELLOW POTATOES",
+    "purchaseDate": "2026.02.05",
+    "price": "3.99CAD",
+    "amount": "1",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "EVERCRISP APPLE",
+    "purchaseDate": "2026.02.05",
+    "price": "2.94CAD",
+    "amount": "1.97 lb",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "GREEN ONIONS",
+    "purchaseDate": "2026.02.05",
+    "price": "1.99CAD",
+    "amount": "1",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  },
+  {
+    "productName": "ZUCCHINI",
+    "purchaseDate": "2026.02.05",
+    "price": "1.24CAD",
+    "amount": "0.83 lb",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2825,
+    "longitude": -123.1328
+  }
+]

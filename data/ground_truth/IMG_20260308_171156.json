@@ -1,0 +1,29 @@
+[
+  {
+    "productName": "APPLES FUJI",
+    "purchaseDate": "2026.02.08",
+    "price": "2.75CAD",
+    "amount": "2.78 lb",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2861,
+    "longitude": -123.1390
+  },
+  {
+    "productName": "TOFU BOX FIRM/RED",
+    "purchaseDate": "2026.02.08",
+    "price": "3.49CAD",
+    "amount": "1",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2861,
+    "longitude": -123.1390
+  },
+  {
+    "productName": "TOMATOES FIELD",
+    "purchaseDate": "2026.02.08",
+    "price": "1.38CAD",
+    "amount": "0.46 lb",
+    "storeName": "Kin's Farm Market",
+    "latitude": 49.2861,
+    "longitude": -123.1390
+  }
+]

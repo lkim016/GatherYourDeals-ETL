@@ -1,0 +1,20 @@
+[
+  {
+    "productName": "STEW BEEF",
+    "purchaseDate": "2025.11.18",
+    "price": "16.87CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  },
+  {
+    "productName": "NN BGL. BLUBRY",
+    "purchaseDate": "2025.11.18",
+    "price": "3.99CAD",
+    "amount": "1",
+    "storeName": "Your Independent Grocer",
+    "latitude": 49.2827,
+    "longitude": -123.1332
+  }
+]

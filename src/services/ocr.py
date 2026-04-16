@@ -4,9 +4,37 @@ import statistics
 from pathlib import Path
 
 from src.core import config, ocr_config
-from src.utils import image_proc
+from src.utils import image_proc, test
 # Also import these from etl_logger for the log_adi call
 from src.logs.etl_logger import log_adi, ADI_COST_PER_PAGE
+from src.core import clients
+
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional
+
+class DBItem(BaseModel):
+    productName: str
+    price: str  # Preserves "10.76USD"
+    amount: str = "1"
+    purchaseDate: str
+    storeName: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+    @field_validator('productName')
+    def validate_name(cls, v):
+        # Centralized 'Unknown' filter
+        if not v or v.lower() in ["unknown", "unknown item", "n/a"]:
+            raise ValueError("Invalid product name")
+        return v.strip()
+
+    @field_validator('price')
+    def validate_price(cls, v):
+        # Centralized 'Zero' filter
+        clean_v = str(v).strip()
+        if clean_v in ["0", "0.0", "0.00", ""]:
+            raise ValueError("Invalid or zero price")
+        return clean_v
 
 
 # Identifies savings/discount lines in the spatial layout so they can be
@@ -485,3 +513,17 @@ def _detect_currency_from_ocr(ocr_text: str) -> str | None:
     if ocr_config.US_STORE_OCR_RE.search(ocr_text):
         return "USD"
     return None
+
+
+
+async def process_image_with_ocr(image_bytes):
+    """
+    Wraps the Azure OCR call in a semaphore to prevent 429 rate-limit errors.
+    """
+    sem = test.get_ocr_sem()
+    
+    async with sem:
+        # This is where the actual network call happens.
+        # Even if 100 people hit this function, only 14 will 'enter' this block.
+        result = await clients.azure_ocr_client.analyze(image_bytes)
+        return result
