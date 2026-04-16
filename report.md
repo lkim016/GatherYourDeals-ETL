@@ -1,5 +1,8 @@
 # Report
 
+## General
+- Please have some coarse summary of your performance, cost, load in development, I would like to present them as a financial report for this whole phase of development - Yue
+
 ### 2026-04-15
 Just performed a "Surgical Manual Intervention." In your report, you can describe this as:
 

@@ -43,6 +43,7 @@ def geocode(address: str, store_name: str = "") -> tuple[float | None, float | N
     """
     Look up lat/lon for a store address using Azure Maps Fuzzy Search API.
     """
+    print(f"DEBUG GEO: Key Present? {bool(config.AZURE_MAPS_KEY)} | Address: '{address}'")
     if not config.AZURE_MAPS_KEY or not address:
         return None, None
         

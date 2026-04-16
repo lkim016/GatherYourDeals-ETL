@@ -633,6 +633,7 @@ if _RT_AVAILABLE:
             f"[LLM] Done — {items_count} valid items  store={raw_store}  valid={extraction_is_valid}"
         )
 
+        print(f"CHECKPOINT: {raw_store} | Lat: {lat} | Lon: {lon} | Items: {len(final_compliant_items)}")
         return StructureOutput(
             **ctx.model_dump(),
             ocr_text=ocr_text,

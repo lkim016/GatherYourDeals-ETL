@@ -105,25 +105,30 @@ def _score_single_pair(pred_path: Path, gt_path: Path):
     pred_data = json.loads(pred_path.read_text())
     gt_data = json.loads(gt_path.read_text())
     
-    # 1. NORMALIZE: Ensure we are looking at lists
-    # This handles both your old dict format and your new list format
-    pred_items = pred_data.get("items", []) if isinstance(pred_data, dict) else pred_data
-    gt_items = gt_data # Assuming GT is always the list you showed me
+    # 1. NORMALIZE: Ensure both are lists
+    # If your ETL saved a dict with an "items" key, extract it.
+    # If it's already a list (like your previous message), use it directly.
+    pred_items = pred_data if isinstance(pred_data, list) else pred_data.get("items", [])
+    gt_items = gt_data if isinstance(gt_data, list) else gt_data.get("items", [])
     
-    # 2. Field-level comparison (using the first item as a representative)
-    # Since storeName/Date are now inside the items
-    fields_to_check = ["storeName", "purchaseDate"]
+    fields_to_check = ["storeName", "purchaseDate", "productName", "price"]
+    
+    # We use gt_items for the denominator to see how much of the "Truth" we caught
+    total_possible_matches = len(gt_items) * len(fields_to_check)
     matches = 0
     
-    if pred_items and gt_items:
-        p0 = pred_items[0]
-        g0 = gt_items[0]
+    # 2. COMPARE: Loop through both lists
+    for p_item, g_item in zip(pred_items, gt_items):
         for field in fields_to_check:
-            if str(p0.get(field)).strip().lower() == str(g0.get(field)).strip().lower():
+            # .get(field, "") prevents crashes if a field is missing
+            p_val = str(p_item.get(field, "")).strip().lower()
+            g_val = str(g_item.get(field, "")).strip().lower()
+            
+            if p_val == g_val and p_val != "":
                 matches += 1
     
-    # 3. Calculate score
-    score = (matches / len(fields_to_check)) * 100 if fields_to_check else 0
+    # 3. CALCULATE
+    score = (matches / total_possible_matches * 100) if total_possible_matches > 0 else 0
     
     return score, {"name": gt_path.stem, "score": round(score, 2)}
 
