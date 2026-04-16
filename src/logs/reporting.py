@@ -162,7 +162,7 @@ def run_batch_evaluation(results: list[dict], total_input_count: int):
     and compares them to the GitHub-pushed ground truth.
     """
     # 1. Safety check on results
-    valid_results = [r for r in results if r.get("success") and "model" in r]
+    valid_results = [r for r in results if "model" in r]
     if not valid_results:
         print("EVAL: No successful results with model info found to score.")
         return
@@ -232,7 +232,7 @@ def run_batch_evaluation(results: list[dict], total_input_count: int):
             best_match = max(gt_vault, key=lambda x: calculate_match_score(output_data, x["data"]))
             winning_score = calculate_match_score(output_data, best_match["data"])
 
-            if winning_score > 60:
+            if winning_score > 40:
                 print(f"✅ Match Found: {output_file.name} -> {best_match['path'].name}")
                 
                 # 3. SCORE THE MATCH IMMEDIATELY

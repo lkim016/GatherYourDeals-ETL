@@ -123,25 +123,6 @@ def get_geo_sem():
         _GEO_SEMAPHORE = asyncio.Semaphore(1)
     return _GEO_SEMAPHORE
 
-async def throttled_ocr(image_bytes: bytes, display_name: str, run_id: str, user_id: str, use_cache: bool):
-    """
-    Directly passes bytes to the service. No disk I/O needed.
-    """    
-    async with get_ocr_sem():
-        def run_sync():
-            # Pass the bytes directly to the service
-            # Your service handles the internal conversion/ADI call
-            return ocr_srvc.AzureOCRService(
-                image_bytes, 
-                display_name, 
-                run_id, 
-                user_id=user_id, 
-                use_cache=use_cache
-            )
-
-        # Still use to_thread because the SDK call inside the service is synchronous
-        return await asyncio.to_thread(run_sync)
-
 # ---------------------------------------------------------------------------
 # Railtracks — flow orchestration + observability
 # ---------------------------------------------------------------------------
@@ -187,21 +168,26 @@ def _build_system_prompt(ocr_text: str, use_direct: bool = False) -> str:
     return base + "\n".join(addenda)
 
 # ---------------------------------------------------------------------------
-# ETL Pipeline Nodes
+# ETL Pipeline Throttle
 # ---------------------------------------------------------------------------
-async def ocr_node(image_path, run_id, user_id):
-    ocr_service = ocr_srvc.AzureOCRService()
-    
-    # This replaces the massive block of code previously in etl.py
-    ocr_text = await ocr_service.perform_ocr(
-        image_data=image_path,
-        display_name=image_path.name,
-        run_id=run_id,
-        user_id=user_id
-    )
-    
-    return ocr_text
+async def throttled_ocr(image_bytes: bytes, display_name: str, run_id: str, user_id: str, use_cache: bool):
+    """
+    Directly passes bytes to the service. No disk I/O needed.
+    """    
+    async with get_ocr_sem():
+        def run_sync():
+            # Pass the bytes directly to the service
+            # Your service handles the internal conversion/ADI call
+            return ocr_srvc.AzureOCRService(
+                image_bytes, 
+                display_name, 
+                run_id, 
+                user_id=user_id, 
+                use_cache=use_cache
+            )
 
+        # Still use to_thread because the SDK call inside the service is synchronous
+        return await asyncio.to_thread(run_sync)
 
 # ---------------------------------------------------------------------------
 # Output flattening — denormalize receipt metadata into per-item records
@@ -538,6 +524,7 @@ if _RT_AVAILABLE:
     async def receipt_pipeline(ctx: OcrInput) -> StructureOutput:
         """Single-node pipeline: OCR → LLM/geocode in one Railtracks step."""
         image_path = Path(ctx.image_path)
+        display_name = ctx.display_name
         
         # 1. OCR Step
         ocr_text = await throttled_ocr(image_path, ctx.display_name, ctx.run_id, ctx.user_name, True)
@@ -548,7 +535,7 @@ if _RT_AVAILABLE:
         # 2. LLM Step
         async with get_llm_sem(): # <--- The "Bouncer" gate
             await rt.broadcast(
-                f"[LLM] Starting — provider={ctx.provider}  model={ctx.model}; Waiting for slot/Executing — {image_path.name}"
+                f"[LLM] Starting — provider={ctx.provider}  model={ctx.model}; Waiting for slot/Executing — {display_name}"
                 f"input={len(ocr_text)} chars"
             )
             result, total_pt, total_ct, total_cost = await asyncio.to_thread(
@@ -619,13 +606,13 @@ if _RT_AVAILABLE:
         
         # Check for failure FIRST
         if items_count == 0:
-            raise ValueError(f"ETL Failed for {image_path.name}: No valid items extracted.")
+            raise ValueError(f"ETL Failed for {display_name}: No valid items extracted.")
 
         # If we passed that, NOW we prepare the data
         result_to_save = final_compliant_items 
 
         # 1. LOG THE COST
-        print(f"REPORT_METRIC: {image_path.name} cost was ${round(total_cost, 8)}")
+        print(f"REPORT_METRIC: {display_name} cost was ${round(total_cost, 8)}")
         
         # 2. SAVE THE CLEAN LIST
         model_slug = ctx.model.split("/")[-1].lower()
@@ -643,14 +630,14 @@ if _RT_AVAILABLE:
         if final_compliant_items:
             sample = final_compliant_items[0]
             # This allows you to verify the 5 core fields + geocoding in the logs
-            print(f"DEBUG [{image_path.name}] Audit Check: "
+            print(f"DEBUG [{display_name}] Audit Check: "
                   f"name='{sample.get('productName')}', "
                   f"date='{sample.get('purchaseDate')}', "
                   f"price='{sample.get('price')}', "
                   f"store='{sample.get('storeName')}', "
                   f"lat={sample.get('latitude')}")
         else:
-            print(f"DEBUG [{image_path.name}] WARNING: No items survived filtering!")
+            print(f"DEBUG [{display_name}] WARNING: No items survived filtering!")
             
         return StructureOutput(
             **ctx.model_dump(),

@@ -26,6 +26,7 @@ def _send_to_discord(entry: dict):
     webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
     
     if not webhook_url:
+        print("DEBUG: No DISCORD_WEBHOOK_URL found. Skipping Discord notification.")
         return
 
     # Determine status for color-coding or emoji
