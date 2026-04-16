@@ -17,7 +17,7 @@ build/
 # reports/provider-charts/
 *receiptAddress*
 *logs/
-*output/
+*output*/
 *reports/
 ocr_cache/
 

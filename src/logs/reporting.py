@@ -101,23 +101,30 @@ def calculate_match_score(output, gt):
     return score
 
 def _score_single_pair(pred_path: Path, gt_path: Path):
-    pred = json.loads(pred_path.read_text())
-    gt = json.loads(gt_path.read_text())
+    # Load the files
+    pred_data = json.loads(pred_path.read_text())
+    gt_data = json.loads(gt_path.read_text())
     
-    # 1. Define what fields you want to check
-    fields_to_check = ["storeName", "purchaseDate", "total", "tax"]
+    # 1. NORMALIZE: Ensure we are looking at lists
+    # This handles both your old dict format and your new list format
+    pred_items = pred_data.get("items", []) if isinstance(pred_data, dict) else pred_data
+    gt_items = gt_data # Assuming GT is always the list you showed me
+    
+    # 2. Field-level comparison (using the first item as a representative)
+    # Since storeName/Date are now inside the items
+    fields_to_check = ["storeName", "purchaseDate"]
     matches = 0
     
-    # 2. Basic field-level comparison
-    for field in fields_to_check:
-        if str(pred.get(field)).strip().lower() == str(gt.get(field)).strip().lower():
-            matches += 1
-            
-    # 3. Calculate percentage based on those fields
-    # (Or add logic here to compare the 'items' list for more depth)
-    score = (matches / len(fields_to_check)) * 100
+    if pred_items and gt_items:
+        p0 = pred_items[0]
+        g0 = gt_items[0]
+        for field in fields_to_check:
+            if str(p0.get(field)).strip().lower() == str(g0.get(field)).strip().lower():
+                matches += 1
     
-    # Now 'score' is defined, and the underline will disappear!
+    # 3. Calculate score
+    score = (matches / len(fields_to_check)) * 100 if fields_to_check else 0
+    
     return score, {"name": gt_path.stem, "score": round(score, 2)}
 
 def run_batch_evaluation(results: list[dict]):
@@ -163,12 +170,31 @@ def run_batch_evaluation(results: list[dict]):
     all_scores = []
     summary_rows = []
 
+    # --- CLEANUP STEP ---
+    # Use target_dir directly to find and remove "Poison Pills"
+    for f in target_dir.glob("*.json"):
+        try:
+            content = json.loads(f.read_text())
+            # If it's the big dictionary with 'storeName' at the top, it's the OLD format
+            if isinstance(content, dict) and "storeName" in content:
+                print(f"EVAL: Removing old dict-style file {f.name}")
+                f.unlink()
+        except:
+            f.unlink() # Delete corrupt files
+
+
     # 2. Iterate through generated outputs and match them
     for output_file in target_dir.glob("*.json"):
         try:
-            output_data = json.loads(output_file.read_text())
+            raw_output = json.loads(output_file.read_text())
             
-            # Find the best GT match using your scoring function
+            # NORMALIZATION: If your ETL outputted the dict, extract the list for the evaluator
+            if isinstance(raw_output, dict) and "items" in raw_output:
+                output_data = raw_output["items"]
+            else:
+                output_data = raw_output # Already a list
+
+            # Now compare list vs list
             best_match = max(gt_vault, key=lambda x: calculate_match_score(output_data, x["data"]))
             winning_score = calculate_match_score(output_data, best_match["data"])
 

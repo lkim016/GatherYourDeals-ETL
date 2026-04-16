@@ -204,56 +204,6 @@ async def ocr_node(image_path, run_id, user_id):
 
 
 # ---------------------------------------------------------------------------
-# Discord LOGS
-# ---------------------------------------------------------------------------
-def run_batch_evaluation(results: list[dict]):
-    """
-    Evaluation bridge using a persistent Railway Volume.
-    """
-    # 1. Point to the real directory in your Volume
-    # No more hydrate_ground_truth_from_env()!
-    gt_dir = config.GROUND_TRUTH_DIR 
-
-    # 2. Safety check: Does the Volume actually have files?
-    if not gt_dir.exists() or not any(gt_dir.glob("*.json")):
-        print(f"EVAL: Ground truth directory {gt_dir} is empty or missing.")
-        return
-
-    # 3. Find the output to score
-    # We look for the model folder created during the ETL process
-    if not config.OUTPUT_DIR.exists():
-        print("EVAL: No outputs found to evaluate.")
-        return
-        
-    # Get the most recently updated subdirectory (e.g., 'openrouter-gpt-4o')
-    all_dirs = [d for d in config.OUTPUT_DIR.iterdir() if d.is_dir()]
-    target_dir = max(all_dirs, key=os.path.getmtime) if all_dirs else config.OUTPUT_DIR
-
-    if not target_dir:
-        print("EVAL: No outputs found to evaluate.")
-        return
-
-    print(f"📊 EVAL: Comparing {target_dir.name} vs Ground Truth")
-
-    # --- CLEANUP STEP ---
-    # Use target_dir directly to find and remove "Poison Pills"
-    for f in target_dir.glob("*.json"):
-        content = f.read_text(encoding="utf-8").strip()
-        # Delete if it's the old list format or if it's empty
-        if content.startswith("[") or not content:
-            print(f"EVAL: Removing stale file {f.name}")
-            f.unlink()
-
-    # 4. Run the scoring engine
-    # (Using the same _compute_eval function you already wrote)
-    header, rows, scores = rpt.compute_eval(target_dir, gt_dir=gt_dir)
-
-    # 5. Discord Summary
-    if scores:
-        avg = sum(scores) / len(scores)
-        rpt.send_discord_summary(avg, len(scores), rows)
-
-# ---------------------------------------------------------------------------
 # Output flattening — denormalize receipt metadata into per-item records
 # ---------------------------------------------------------------------------
 

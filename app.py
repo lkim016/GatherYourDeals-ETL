@@ -371,16 +371,27 @@ async def _process_one(
         # 2. TRANSFORM
         rows = _etl.flatten_receipt(data)
         data["items"] = rows
+
+        # Optional: Force 'amount' to string if you want to be 100% safe
+        for r in rows: r["amount"] = str(r.get("amount", "1"))
         
         # Save local copy for Eval
         model_slug = model.split("/")[-1].lower()
         out_dir = config.OUTPUT_DIR / f"{provider}-{model_slug}"
         out_dir.mkdir(parents=True, exist_ok=True)
         # Use 'data' here, not 'rows'
+
+        # Keep this for your report's cost analysis!
+        if isinstance(data, dict):
+            print(f"REPORT_METRIC: {display_name} cost was ${data.get('llm_cost_usd', 0)}")
+
         print(f"DEBUG: Type of data is {type(data)} | Keys: {list(data.keys()) if isinstance(data, dict) else 'N/A'}")
 
+        # Save ONLY the list of items to match the Ground Truth schema
+        items_to_save = data.get("items", []) if isinstance(data, dict) else data
+
         (out_dir / (Path(display_name).stem + ".json")).write_text(
-            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+            json.dumps(items_to_save, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
         # 3. UPLOAD
