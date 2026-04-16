@@ -585,12 +585,28 @@ async def run_etl(
 
     # 5. FINAL RESPONSE
     succeeded = sum(1 for r in results if r.get("success"))
+    
+    # --- BUILD CONSOLIDATED REGISTRY ---
+    # results is a list of dicts. We want to extract 'registry' from each dict
+    # and merge them into one master mapping for the Bash script.
+    combined_registry = {}
+    for r in results:
+        file_reg = r.get("registry")
+        if file_reg and isinstance(file_reg, dict):
+            combined_registry.update(file_reg)
+    
+    # Grab provider/model info from the first result if available
+    first_res = results[0] if results else {}
+    
     return JSONResponse(
         status_code=200 if succeeded > 0 else 422,
         content={
             "success": succeeded == len(results),
             "message": f"{succeeded}/{len(results)} succeeded",
-            "results": results
+            "results": results,          # Keep the detailed list for debugging
+            "registry": combined_registry, # THIS is what the Bash script reads
+            "provider": first_res.get("provider"),
+            "model": first_res.get("model")
         }
     )
 
