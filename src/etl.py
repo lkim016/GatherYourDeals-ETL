@@ -632,7 +632,7 @@ if _RT_AVAILABLE:
         provider_out_dir = config.OUTPUT_DIR / f"{ctx.provider}-{model_slug}"
         provider_out_dir.mkdir(parents=True, exist_ok=True)
         
-        out_file = provider_out_dir / (image_path.stem + ".json")
+        out_file = provider_out_dir / (ctx.display_name + ".json")
         out_file.write_text(json.dumps(result_to_save, indent=2, ensure_ascii=False))
 
         # 3. UPDATE RESULT AND BROADCAST

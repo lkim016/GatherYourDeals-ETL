@@ -231,7 +231,7 @@ def run_batch_evaluation(results: list[dict], total_input_count: int):
     print("="*30 + "\n")
     
     # 4. Final Reporting
-    if all_scores:
+    if all_scores and len(all_scores) > 0:
         avg = sum(all_scores) / len(all_scores)
         _send_discord_summary(avg, len(all_scores), summary_rows)
         print(f"Done. Average Accuracy: {avg:.1f}%")
