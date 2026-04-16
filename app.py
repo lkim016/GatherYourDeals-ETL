@@ -575,8 +575,7 @@ async def run_etl(
         try:
             # Pass the results list to your evaluation utility
             # It will compare these against the Ground Truth and ping Discord once.
-            # await asyncio.to_thread(rpt.run_batch_evaluation, results, len(file_pairs))
-            rpt.run_batch_evaluation(results, len(file_pairs))
+            await asyncio.to_thread(rpt.run_batch_evaluation, results, len(file_pairs))
         except Exception as eval_exc:
             # We use a broad catch here because we don't want an 
             # evaluation failure to crash the actual ETL response.

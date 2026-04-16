@@ -86,29 +86,27 @@ def normalize_for_comparison(val):
 def similarity(a, b):
     """Fuzzy match helper for store names."""
     if not a or not b: return 0.0
-    return SequenceMatcher(None, str(a).lower(), str(b).lower()).ratio()
+    return difflib.SequenceMatcher(None, str(a).lower(), str(b).lower()).ratio()
 
 
 def calculate_match_score(pred_data, gt_data) -> float:
-    """
-    Compares two lists of items to see how likely they are to be the same receipt.
-    """
-    # Check if pred_data is a list; if not, try to get "items". 
-    # If it's a list, .get() doesn't exist, so we use a conditional.
-    p_items = pred_data if isinstance(pred_data, list) else (pred_data.get("items", []) if isinstance(pred_data, dict) else [])
-    g_items = gt_data if isinstance(gt_data, list) else (gt_data.get("items", []) if isinstance(gt_data, dict) else [])
+    p_items = pred_data if isinstance(pred_data, list) else pred_data.get("items", [])
+    g_items = gt_data if isinstance(gt_data, list) else gt_data.get("items", [])
     
     if not p_items or not g_items:
         return 0.0
 
-    # Extract names for comparison
-    p_names = {str(item.get("productName", "")).lower() for item in p_items if isinstance(item, dict)}
-    g_names = {str(item.get("productName", "")).lower() for item in g_items if isinstance(item, dict)}
-
-    intersection = p_names.intersection(g_names)
-    union = p_names.union(g_names)
-    
-    return (len(intersection) / len(union)) * 100 if union else 0.0
+    # Match items based on name similarity
+    matches = 0
+    for g_item in g_items:
+        g_name = str(g_item.get("productName", "")).lower()
+        # Check if any predicted item is > 80% similar
+        if any(similarity(g_name, str(p.get("productName", "")).lower()) > 0.8 for p in p_items):
+            matches += 1
+            
+    # Simple Jaccard-like score based on matches
+    total = len(g_items) + len(p_items) - matches
+    return (matches / total) * 100 if total > 0 else 0.0
 
 
 def _score_single_pair(pred_path: Path, gt_path: Path):
@@ -187,6 +185,8 @@ def run_batch_evaluation(results: list[dict], total_input_count: int):
         print(f"EVAL: Target folder missing at {target_dir}")
         return
     
+    print(f"DEBUG: Found {len(list(target_dir.glob('*.json')))} files in target_dir")
+    
     # 1. Pre-load Ground Truths into memory (The "Vault")
     gt_vault = []
     for gt_file in gt_dir.glob("*.json"):
@@ -215,6 +215,7 @@ def run_batch_evaluation(results: list[dict], total_input_count: int):
 
     # 2. Iterate through generated outputs and match them
     for output_file in target_dir.glob("*.json"):
+        print(f"DEBUG: Scanning file {output_file.name}")
         try:
             raw_output = json.loads(output_file.read_text())
             
