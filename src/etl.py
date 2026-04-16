@@ -590,23 +590,23 @@ if _RT_AVAILABLE:
         for item in clean_items:
             name = item.get("productName")
             
-            # 1. CLEAN PRICE: Force to string, remove non-numeric chars
-            raw_price = str(item.get("price") or "0")
-            clean_price_str = "".join(c for c in raw_price if c.isdigit() or c == '.')
-            try:
-                price = float(clean_price_str) if clean_price_str else 0.0
-            except ValueError:
-                price = 0.0
+            # 1. KEEP PRICE AS STRING: Preserve "10.76USD"
+            price = str(item.get("price") or "").strip()
             
             # 2. CLEAN AMOUNT: Handle strings like "1b" or "2pk"
             amount_str = str(item.get("amount") or "1").strip()
             
-            # 3. QUALITY GATE
-            if name and name != "Unknown Item" and price > 0:
+            # 3. QUALITY GATE:
+            # We check if name exists and isn't "Unknown"
+            # We check if price exists and isn't just "0" or empty
+            has_name = name and name.lower() != "unknown item"
+            has_price = price and price not in ["0", "0.0", "0.00"]
+
+            if has_name and has_price:
                 compliant_item = {
                     "productName": name,
                     "purchaseDate": item.get("purchaseDate") or raw_date,
-                    "price": price,
+                    "price": price, # Still "10.76USD"
                     "amount": amount_str,
                     "storeName": item.get("storeName") or raw_store,
                     "latitude": lat,

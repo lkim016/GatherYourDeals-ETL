@@ -24,7 +24,6 @@ from pathlib import Path
 from src.core import config
 import requests
 import os
-from difflib import SequenceMatcher
 
 # ---------------------------------------------------------------------------
 # Paths — must match etl.py
@@ -75,9 +74,14 @@ def _send_discord_summary(avg_score, total_receipts, rows):
     except Exception as e:
         print(f"ERROR: Failed to send Discord notification: {e}")
 
-def normalize_price(price_val):
-    if price_val is None: return ""
-    return re.sub(r'[^\d.]', '', str(price_val))
+
+def normalize_for_comparison(val):
+    """Temporary cleaning just for scoring math"""
+    if val is None: return ""
+    s = str(val).lower().strip()
+    for extra in ["usd", "cad", "$", " "]:
+        s = s.replace(extra, "")
+    return s
 
 def similarity(a, b):
     """Fuzzy match helper for store names."""
@@ -111,28 +115,45 @@ def _score_single_pair(pred_path: Path, gt_path: Path):
     pred_raw = json.loads(pred_path.read_text())
     gt_raw = json.loads(gt_path.read_text())
     
-    # Use the same robust normalization
-    pred_items = pred_raw if isinstance(pred_raw, list) else (pred_raw.get("items", []) if isinstance(pred_raw, dict) else [])
-    gt_items = gt_raw if isinstance(gt_raw, list) else (gt_raw.get("items", []) if isinstance(gt_raw, dict) else [])
+    # Normalization: Handle both List and Dict formats
+    p_items = pred_raw if isinstance(pred_raw, list) else pred_raw.get("items", [])
+    g_items = gt_raw if isinstance(gt_raw, list) else gt_raw.get("items", [])
     
-    #denom based on Ground Truth length
-    fields_to_check = ["storeName", "purchaseDate", "productName", "price"]
-    total_possible_matches = len(gt_items) * len(fields_to_check)
-    matches = 0
+    fields_to_check = ["productName", "price", "purchaseDate", "storeName"]
     
-    for p_item, g_item in zip(pred_items, gt_items):
-        if not isinstance(p_item, dict) or not isinstance(g_item, dict):
-            continue
-            
-        for field in fields_to_check:
-            # Note: If your price is "1.56CAD", this string comparison still works!
-            p_val = str(p_item.get(field, "")).strip().lower()
-            g_val = str(g_item.get(field, "")).strip().lower()
-            
-            if p_val == g_val and p_val not in ["", "none", "null"]:
-                matches += 1
-    
-    score = (matches / total_possible_matches * 100) if total_possible_matches > 0 else 0
+    total_possible_points = len(g_items) * len(fields_to_check)
+    matched_points = 0
+
+    for g_item in g_items:
+        # We use similarity to find the 'best' candidate in the predicted list
+        # instead of an exact '==' match on product name
+        best_p_item = None
+        highest_name_sim = 0
+        
+        for p_item in p_items:
+            sim = similarity(g_item.get("productName"), p_item.get("productName"))
+            if sim > highest_name_sim:
+                highest_name_sim = sim
+                best_p_item = p_item
+
+        # Threshold: If we found a candidate that is at least 80% similar in name
+        if highest_name_sim >= 0.8:
+            for field in fields_to_check:
+                p_raw = best_p_item.get(field)
+                g_raw = g_item.get(field)
+
+                if field in ["productName", "storeName"]:
+                    # --- FUZZY MATCHING ---
+                    if similarity(p_raw, g_raw) >= 0.8:
+                        matched_points += 1
+                else:
+                    # --- NORMALIZED EXACT MATCHING (Price/Date) ---
+                    # This uses your normalize_for_comparison to strip "USD/CAD"
+                    if normalize_for_comparison(p_raw) == normalize_for_comparison(g_raw):
+                        if normalize_for_comparison(p_raw) not in ["", "none", "null"]:
+                            matched_points += 1
+                
+    score = (matched_points / total_possible_points * 100) if total_possible_points > 0 else 0
     return score, {"name": gt_path.stem, "score": round(score, 2)}
 
 
