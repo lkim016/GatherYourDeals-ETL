@@ -84,55 +84,59 @@ def similarity(a, b):
     if not a or not b: return 0.0
     return SequenceMatcher(None, str(a).lower(), str(b).lower()).ratio()
 
-def calculate_match_score(output, gt):
-    score = 0
-    # Date (50 pts)
-    if output.get("purchaseDate") == gt.get("purchaseDate"):
-        score += 50
+
+def calculate_match_score(pred_data, gt_data) -> float:
+    """
+    Compares two lists of items to see how likely they are to be the same receipt.
+    """
+    # Check if pred_data is a list; if not, try to get "items". 
+    # If it's a list, .get() doesn't exist, so we use a conditional.
+    p_items = pred_data if isinstance(pred_data, list) else (pred_data.get("items", []) if isinstance(pred_data, dict) else [])
+    g_items = gt_data if isinstance(gt_data, list) else (gt_data.get("items", []) if isinstance(gt_data, dict) else [])
     
-    # Price (40 pts)
-    out_total = normalize_price(output.get("total"))
-    gt_total = normalize_price(gt.get("total"))
-    if out_total and gt_total and out_total == gt_total:
-        score += 40
-        
-    # Name (30 pts max)
-    score += (similarity(output.get("storeName", ""), gt.get("storeName", "")) * 30)
-    return score
+    if not p_items or not g_items:
+        return 0.0
+
+    # Extract names for comparison
+    p_names = {str(item.get("productName", "")).lower() for item in p_items if isinstance(item, dict)}
+    g_names = {str(item.get("productName", "")).lower() for item in g_items if isinstance(item, dict)}
+
+    intersection = p_names.intersection(g_names)
+    union = p_names.union(g_names)
+    
+    return (len(intersection) / len(union)) * 100 if union else 0.0
+
 
 def _score_single_pair(pred_path: Path, gt_path: Path):
-    # Load the files
-    pred_data = json.loads(pred_path.read_text())
-    gt_data = json.loads(gt_path.read_text())
+    pred_raw = json.loads(pred_path.read_text())
+    gt_raw = json.loads(gt_path.read_text())
     
-    # 1. NORMALIZE: Ensure both are lists
-    # If your ETL saved a dict with an "items" key, extract it.
-    # If it's already a list (like your previous message), use it directly.
-    pred_items = pred_data if isinstance(pred_data, list) else pred_data.get("items", [])
-    gt_items = gt_data if isinstance(gt_data, list) else gt_data.get("items", [])
+    # Use the same robust normalization
+    pred_items = pred_raw if isinstance(pred_raw, list) else (pred_raw.get("items", []) if isinstance(pred_raw, dict) else [])
+    gt_items = gt_raw if isinstance(gt_raw, list) else (gt_raw.get("items", []) if isinstance(gt_raw, dict) else [])
     
+    #denom based on Ground Truth length
     fields_to_check = ["storeName", "purchaseDate", "productName", "price"]
-    
-    # We use gt_items for the denominator to see how much of the "Truth" we caught
     total_possible_matches = len(gt_items) * len(fields_to_check)
     matches = 0
     
-    # 2. COMPARE: Loop through both lists
     for p_item, g_item in zip(pred_items, gt_items):
+        if not isinstance(p_item, dict) or not isinstance(g_item, dict):
+            continue
+            
         for field in fields_to_check:
-            # .get(field, "") prevents crashes if a field is missing
+            # Note: If your price is "1.56CAD", this string comparison still works!
             p_val = str(p_item.get(field, "")).strip().lower()
             g_val = str(g_item.get(field, "")).strip().lower()
             
-            if p_val == g_val and p_val != "":
+            if p_val == g_val and p_val not in ["", "none", "null"]:
                 matches += 1
     
-    # 3. CALCULATE
     score = (matches / total_possible_matches * 100) if total_possible_matches > 0 else 0
-    
     return score, {"name": gt_path.stem, "score": round(score, 2)}
 
-def run_batch_evaluation(results: list[dict]):
+
+def run_batch_evaluation(results: list[dict], total_input_count: int):
     """
     Scans the local container disk for the just-generated outputs
     and compares them to the GitHub-pushed ground truth.
@@ -194,10 +198,12 @@ def run_batch_evaluation(results: list[dict]):
             raw_output = json.loads(output_file.read_text())
             
             # NORMALIZATION: If your ETL outputted the dict, extract the list for the evaluator
-            if isinstance(raw_output, dict) and "items" in raw_output:
-                output_data = raw_output["items"]
+            if isinstance(raw_output, list):
+                output_data = raw_output
+            elif isinstance(raw_output, dict):
+                output_data = raw_output.get("items", [])
             else:
-                output_data = raw_output # Already a list
+                continue # Skip weird formats
 
             # Now compare list vs list
             best_match = max(gt_vault, key=lambda x: calculate_match_score(output_data, x["data"]))
@@ -216,6 +222,14 @@ def run_batch_evaluation(results: list[dict]):
         except Exception as e:
             print(f"Error processing {output_file.name}: {e}")
 
+    # Borrowed from main(): Final Reporting
+    success_count = len([r for r in results if r.get("success")])
+    
+    print("\n" + "="*30)
+    # Use the passed-in count here
+    print(f"BATCH COMPLETE: {success_count}/{total_input_count} Succeeded.") 
+    print("="*30 + "\n")
+    
     # 4. Final Reporting
     if all_scores:
         avg = sum(all_scores) / len(all_scores)

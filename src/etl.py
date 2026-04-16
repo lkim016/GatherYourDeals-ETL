@@ -599,13 +599,7 @@ if _RT_AVAILABLE:
                 price = 0.0
             
             # 2. CLEAN AMOUNT: Handle strings like "1b" or "2pk"
-            raw_amount = str(item.get("amount") or "1")
-            # Extract only the leading digits (so "1b" becomes "1")
-            clean_amount_str = "".join(c for c in raw_amount if c.isdigit())
-            try:
-                amount = int(clean_amount_str) if clean_amount_str else 1
-            except ValueError:
-                amount = 1
+            amount_str = str(item.get("amount") or "1").strip()
             
             # 3. QUALITY GATE
             if name and name != "Unknown Item" and price > 0:
@@ -613,7 +607,7 @@ if _RT_AVAILABLE:
                     "productName": name,
                     "purchaseDate": item.get("purchaseDate") or raw_date,
                     "price": price,
-                    "amount": amount,
+                    "amount": amount_str,
                     "storeName": item.get("storeName") or raw_store,
                     "latitude": lat,
                     "longitude": lon
@@ -623,17 +617,41 @@ if _RT_AVAILABLE:
         # --- 6. CONDITIONAL SUCCESS ---
         items_count = len(final_compliant_items)
         
-        # If we have NO valid items, we treat this as a failure so it doesn't 
-        # count toward your "Succeeded" tally in the logs.
+        # Check for failure FIRST
         if items_count == 0:
             raise ValueError(f"ETL Failed for {image_path.name}: No valid items extracted.")
 
-        result["items"] = final_compliant_items
-        await rt.broadcast(
-            f"[LLM] Done — {items_count} valid items  store={raw_store}  valid={extraction_is_valid}"
-        )
+        # If we passed that, NOW we prepare the data
+        result_to_save = final_compliant_items 
 
-        print(f"CHECKPOINT: {raw_store} | Lat: {lat} | Lon: {lon} | Items: {len(final_compliant_items)}")
+        # 1. LOG THE COST
+        print(f"REPORT_METRIC: {image_path.name} cost was ${round(total_cost, 8)}")
+        
+        # 2. SAVE THE CLEAN LIST
+        model_slug = ctx.model.split("/")[-1].lower()
+        provider_out_dir = config.OUTPUT_DIR / f"{ctx.provider}-{model_slug}"
+        provider_out_dir.mkdir(parents=True, exist_ok=True)
+        
+        out_file = provider_out_dir / (image_path.stem + ".json")
+        out_file.write_text(json.dumps(result_to_save, indent=2, ensure_ascii=False))
+
+        # 3. UPDATE RESULT AND BROADCAST
+        result["items"] = final_compliant_items
+        await rt.broadcast(f"[LLM] Done — {items_count} items saved to {out_file.name}")
+
+        # --- Stage: Audit Print (Borrowed from main) ---
+        if final_compliant_items:
+            sample = final_compliant_items[0]
+            # This allows you to verify the 5 core fields + geocoding in the logs
+            print(f"DEBUG [{image_path.name}] Audit Check: "
+                  f"name='{sample.get('productName')}', "
+                  f"date='{sample.get('purchaseDate')}', "
+                  f"price='{sample.get('price')}', "
+                  f"store='{sample.get('storeName')}', "
+                  f"lat={sample.get('latitude')}")
+        else:
+            print(f"DEBUG [{image_path.name}] WARNING: No items survived filtering!")
+            
         return StructureOutput(
             **ctx.model_dump(),
             ocr_text=ocr_text,

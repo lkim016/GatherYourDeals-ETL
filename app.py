@@ -372,28 +372,6 @@ async def _process_one(
         rows = _etl.flatten_receipt(data)
         data["items"] = rows
 
-        # Optional: Force 'amount' to string if you want to be 100% safe
-        for r in rows: r["amount"] = str(r.get("amount", "1"))
-        
-        # Save local copy for Eval
-        model_slug = model.split("/")[-1].lower()
-        out_dir = config.OUTPUT_DIR / f"{provider}-{model_slug}"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        # Use 'data' here, not 'rows'
-
-        # Keep this for your report's cost analysis!
-        if isinstance(data, dict):
-            print(f"REPORT_METRIC: {display_name} cost was ${data.get('llm_cost_usd', 0)}")
-
-        print(f"DEBUG: Type of data is {type(data)} | Keys: {list(data.keys()) if isinstance(data, dict) else 'N/A'}")
-
-        # Save ONLY the list of items to match the Ground Truth schema
-        items_to_save = data.get("items", []) if isinstance(data, dict) else data
-
-        (out_dir / (Path(display_name).stem + ".json")).write_text(
-            json.dumps(items_to_save, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-
         # 3. UPLOAD
         try:
             created = _etl.upload(data, run_id, token=jwt_token, refresh_token=refresh_token)
@@ -520,18 +498,42 @@ async def run_etl(
     # 2. SOURCE RESOLUTION (The "Gathering" Phase)
     folder_match = _GDRIVE_FOLDER_RE.search(source)
     
+    VALID_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
     if folder_match:
         # --- BATCH FOLDER LOGIC ---
         folder_id = folder_match.group(1)
         
         print(f"DEBUG: Extracted Folder ID: {folder_id}") # RESTORED
         # Result: file_pairs is populated with multiple images
-        file_pairs = await _collect_folder_files(source, folder_id) 
+        raw_pairs = await _collect_folder_files(source, folder_id)
+
+        # Only keep files that have image extensions. 
+        # This prevents trying to OCR a .txt or .json file in the Drive folder.
+        
+        file_pairs = [
+            p for p in raw_pairs 
+            if Path(p[1]).suffix.lower() in VALID_EXTS
+        ]
+        
+        skipped = len(raw_pairs) - len(file_pairs)
+        if skipped > 0:
+            print(f"DEBUG: Filtered out {skipped} non-image files from Drive folder.")
+
     else:
         # --- SINGLE IMAGE LOGIC ---
         # Result: file_pairs is populated with exactly one image
         img_bytes, name = await _collect_single_file(source)
-        if img_bytes:
+        # Check extension here too for consistency
+        # 1. Check if we actually got data
+        if not img_bytes or not name:
+             return JSONResponse(
+                status_code=400, 
+                content={"success": False, "message": f"Could not retrieve file: {source}"}
+            )
+
+        # 2. Validate Extension (The "Borrowed from Main" check)
+        file_ext = Path(name).suffix.lower()
+        if file_ext in VALID_EXTS:
             file_pairs.append((img_bytes, name))
         else:
             # Optional: if the helper couldn't get the file, 
@@ -573,7 +575,7 @@ async def run_etl(
         try:
             # Pass the results list to your evaluation utility
             # It will compare these against the Ground Truth and ping Discord once.
-            await asyncio.to_thread(rpt.run_batch_evaluation, results)
+            await asyncio.to_thread(rpt.run_batch_evaluation, results, len(file_pairs))
         except Exception as eval_exc:
             # We use a broad catch here because we don't want an 
             # evaluation failure to crash the actual ETL response.
