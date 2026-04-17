@@ -69,6 +69,7 @@ import uuid
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+import logging
 
 import os
 import time
@@ -611,7 +612,17 @@ if _RT_AVAILABLE:
         
         # Check for failure FIRST
         if items_count == 0:
-            raise ValueError(f"ETL Failed for {display_name}: No valid items extracted.")
+            # Use 'error' for things that failed
+            logging.error(f"[SCHEMA FAILURE] {display_name}: LLM returned 0 items.")
+            
+            return {
+                "status": "partial_success",
+                "error": "No items extracted",
+                "file": display_name
+            }
+        else:
+            # Use 'info' for standard progress tracking
+            logging.info(f"[SUCCESS] {display_name}: Extracted {items_count} items.")
 
         # If we passed that, NOW we prepare the data
         result_to_save = final_compliant_items 

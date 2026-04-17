@@ -16,9 +16,9 @@ build/
 # reports/models/
 # reports/provider-charts/
 *receiptAddress*
-*logs/
+/logs/
 *output*/
-*reports/
+/reports/
 ocr_cache/
 
 # Experiment temp files
@@ -46,7 +46,6 @@ ReceiptJson/
 scripts/
 experiments/
 debug/
-tests/
 
 # Local docs
 docs/

@@ -4,7 +4,8 @@ import statistics
 from pathlib import Path
 
 from src.core import config, ocr_config
-from src.utils import image_proc, test
+from src.utils import image_proc
+from src.tests import utils as test
 # Also import these from etl_logger for the log_adi call
 from src.logs.etl_logger import log_adi, ADI_COST_PER_PAGE
 from src.core import clients

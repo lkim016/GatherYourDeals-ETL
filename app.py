@@ -55,7 +55,7 @@ from src import etl as _etl
 from src.core import config
 from src.logs import etl_logger as el
 from src.logs import reporting as rpt
-from src.utils import test
+from src.tests import utils as test
 
 import gdown
 from google.oauth2.credentials import Credentials
@@ -533,7 +533,7 @@ async def run_etl(
         tasks = [test.run_mock_pipeline() for _ in range(len(file_pairs))]
         
         # Fire them all off concurrently!
-        # The semaphores inside _run_mock_pipeline will handle the "waiting in line."
+        # The semaphores inside run_mock_pipeline will handle the "waiting in line."
         await asyncio.gather(*tasks)
         
         return JSONResponse(content={

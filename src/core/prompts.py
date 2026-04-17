@@ -122,7 +122,7 @@ If no SPATIAL LAYOUT, use markdown table rows.
 # by ~70%.  Identical rules to _SYSTEM_PROMPT; only the <spans>/<extract>/<json>
 # thinking scaffold is removed.
 
-COT_SECTION = (
+_COT_SECTION = (
     "\n## Extraction process\n\n"
     "Work through three steps below, then output JSON. This reduces errors on messy receipts.\n\n"
     "<spans>\n"
@@ -137,7 +137,7 @@ COT_SECTION = (
     "</extract>\n\n"
     "<json>\n{final normalized JSON conforming to the schema below}\n</json>\n\n"
 )
-SYSTEM_PROMPT_DIRECT = SYSTEM_PROMPT.replace(COT_SECTION, "")
+SYSTEM_PROMPT_DIRECT = SYSTEM_PROMPT.replace(_COT_SECTION, "")
 
 
 COSTCO_PROMPT_ADDENDUM = """\
