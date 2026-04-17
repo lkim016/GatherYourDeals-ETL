@@ -253,9 +253,6 @@ python etl.py --baseline-report
 # Generate cumulative usage report + charts from logs
 python etl.py --report
 
-# Generate per-model comparison table
-python etl.py --compare
-
 # Evaluate output/ against ground_truth/
 python etl.py --eval
 
@@ -273,7 +270,6 @@ railtracks viz
 | `--no-upload` | off | Skip upload to GYD data service |
 | `--baseline-report` | off | Structured provider egress report scoped to last run |
 | `--report` | off | Cumulative usage report + chart from all logs |
-| `--compare` | off | Per-model comparison table from all logs |
 | `--eval` | off | Score output/ against ground_truth/ |
 
 ---
@@ -429,7 +425,7 @@ railtracks viz
 ---
 
 ## Tests
-[Tests](/GatherYourDeals-ETL/src/tests/)
+[Tests](./src/tests/)
 
 ## Remote storage
 
