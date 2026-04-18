@@ -33,7 +33,7 @@ POST /etl  { "source": "<image URL, local path, or Google Drive folder URL>" }
     │           Tier 5  Null-price repair — targeted re-extraction for any
     │                   items still missing a price after tiers 1–4
     │
-    ▼  Step 5 — Azure Maps Geocoding  (optional)
+    ▼  Step 5 — Azure Maps Geocoding
     │           Resolves store address → latitude / longitude
     │           Address extracted from OCR if LLM returns none
     │
