@@ -1,4 +1,4 @@
-# Experiment 1c — ETL Concurrency Scaling & Saturation Analysis
+# Experiment 1c — ETL Service Layser Scalability
 **CS6650 Final Project — ETL Component**
 *Last updated: 2026-04-17*
 
@@ -297,3 +297,69 @@ The "Hardware Wall" is further out: Since you saw a jump from 5.6 to 9.7 RPS, yo
 Safe for Spikes: With a P99 of 19 seconds, you now have a massive 11-second safety buffer before hitting the 30-second timeout cliff. This configuration is robust enough to handle unexpected bursts of traffic beyond 100 users.
 
 The Non-Fancy Bottom Line: W8 is your high-performance configuration. It doubles your "factory output" compared to W4 and ensures that even during a 100-user rush, nobody waits more than a few seconds to start their processing.
+
+
+---
+
+## Charts
+
+### W = 1 worker
+**u=10, r=2**
+</br><img src="imgs/w1u10r2a.png" alt="W=1 u=10 RPS" width="75%">
+</br><img src="imgs/w1u10r2b.png" alt="W=1 u=10 Latency" width="75%">
+
+**u=50, r=5**
+</br><img src="imgs/w1u50r5a.png" alt="W=1 u=50 RPS" width="75%">
+</br><img src="imgs/w1u50r5b.png" alt="W=1 u=50 Latency" width="75%">
+
+**u=100, r=10**
+</br><img src="imgs/w1u100r10a.png" alt="W=1 u=100 RPS" width="75%">
+</br><img src="imgs/w1u100r10b.png" alt="W=1 u=100 Latency" width="75%">
+
+---
+
+### W = 2 workers
+
+**u=10, r=2**
+</br><img src="imgs/w2u10r2a.png" alt="W=2 u=10 RPS" width="75%">
+</br><img src="imgs/w2u10r2b.png" alt="W=2 u=10 Latency" width="75%">
+
+**u=50, r=5**
+</br><img src="imgs/w2u50r5a.png" alt="W=2 u=50 RPS" width="75%">
+</br><img src="imgs/w2u50r5b.png" alt="W=2 u=50 Latency" width="75%">
+
+**u=100, r=10**
+</br><img src="imgs/w2u100r10a.png" alt="W=1 u=100 RPS" width="75%">
+</br><img src="imgs/w2u100r10b.png" alt="W=1 u=100 Latency" width="75%">
+
+---
+
+### W = 4 workers
+
+**u=10, r=2**
+</br><img src="imgs/w4u10r2a.png" alt="W=1 u=10 RPS" width="75%">
+</br><img src="imgs/w4u10r2b.png" alt="W=1 u=10 Latency" width="75%">
+
+**u=50, r=5**
+</br><img src="imgs/w4u50r5a.png" alt="W=1 u=50 RPS" width="75%">
+</br><img src="imgs/w4u50r5b.png" alt="W=1 u=50 Latency" width="75%">
+
+**u=100, r=10**
+</br><img src="imgs/w4u100r10a.png" alt="W=1 u=100 RPS" width="75%">
+</br><img src="imgs/w4u100r10b.png" alt="W=1 u=100 Latency" width="75%">
+
+
+---
+
+### W = 8 workers
+**u=10, r=2**
+</br><img src="imgs/w8u10r2a.png" alt="W=1 u=10 RPS" width="75%">
+</br><img src="imgs/w8u10r2b.png" alt="W=1 u=10 Latency" width="75%">
+
+**u=50, r=5**
+</br><img src="imgs/w8u50r5a.png" alt="W=1 u=50 RPS" width="75%">
+</br><img src="imgs/w8u50r5b.png" alt="W=1 u=50 Latency" width="75%">
+
+**u=100, r=10**
+</br><img src="imgs/w8u100r10a.png" alt="W=1 u=100 RPS" width="75%">
+</br><img src="imgs/w8u100r10b.png" alt="W=1 u=100 Latency" width="75%">

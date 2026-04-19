@@ -363,8 +363,8 @@ At W=1, u=200 produced RPS=2.4 — higher than u=100 (1.7). This is not a real i
 ### W = 1 worker
 
 **u=10, r=2**
-</br><img src="imgs/1worker-u1-r2a.png" alt="W=1 u=10 RPS" width="75%">
-</br><img src="imgs/1worker-u1-r2b.png" alt="W=1 u=10 Latency" width="75%">
+</br><img src="imgs/1worker-u10-r2a.png" alt="W=1 u=10 RPS" width="75%">
+</br><img src="imgs/1worker-u10-r2b.png" alt="W=1 u=10 Latency" width="75%">
 
 **u=50, r=5**
 </br><img src="imgs/1worker-u50-r5a.png" alt="W=1 u=50 RPS" width="75%">
