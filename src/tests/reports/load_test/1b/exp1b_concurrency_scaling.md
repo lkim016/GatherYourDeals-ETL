@@ -77,6 +77,10 @@ This experiment finds:
 
 ### u=10, W=1 (completed)
 
+**u=10, r=2**
+</br><img src="imgs/1worker-u10-r2a.png" alt="W=1 u=10 RPS" width="75%">
+</br><img src="imgs/1worker-u10-r2b.png" alt="W=1 u=10 Latency" width="75%">
+
 - **RPS = 1** — expected. Each request takes ~8.3s; with `constant_throughput(1)` each user achieves 1/8.3 ≈ 0.12 req/s. 10 users × 0.12 = **~1.2 RPS**.
 - **P95 ≈ P99 ≈ Median (8,300–8,400ms)** — near-zero variance. No queueing. Every request received a thread immediately.
 - **0 failures** — system healthy at low load.
@@ -84,11 +88,21 @@ This experiment finds:
 
 ### u=50, W=1 (completed)
 
+**u=50, r=5**
+</br><img src="imgs/1worker-u50-r5a.png" alt="W=1 u=50 RPS" width="75%">
+</br><img src="imgs/1worker-u50-r5b.png" alt="W=1 u=50 Latency" width="75%">
+
 - **RPS = 1.9** — expected if unconstrained: 50 × 0.12 = 6 RPS. Actual is only 1.9 — thread pool is the ceiling, not user count.
 - **Median jumped from 8,300ms → 21,000ms** — the extra ~12,700ms is queueing delay. Requests wait for a thread before processing even starts.
 - **Min = 8,395ms (unchanged)** — lucky requests that arrive when a thread is free still see baseline latency. Queue is not permanent yet.
 - **P95 ≈ P99 = 23,000ms** — consistent queue depth, no wild tail outliers.
 - **Interpretation:** The bottleneck shifted between u=10 and u=50. Thread pool saturation is the new ceiling. This is the finding — pipeline duration was the limit at low load; queueing is the limit at moderate load.
+
+### u=100, W=1 (completed)
+
+**u=100, r=10**
+</br><img src="imgs/1worker-u100-r10a.png" alt="W=1 u=100 RPS" width="75%">
+</br><img src="imgs/1worker-u100-r10b.png" alt="W=1 u=100 Latency" width="75%">
 
 ---
 
@@ -96,11 +110,19 @@ This experiment finds:
 
 ### u=10, W=2 (completed)
 
+**u=10, r=2**
+</br><img src="imgs/2worker-u10-r2a.png" alt="W=2 u=10 RPS" width="75%">
+</br><img src="imgs/2worker-u10-r2b.png" alt="W=2 u=10 Latency" width="75%">
+
 - **RPS = 1.4** — matches W=1 at u=10 (~1.0–1.2). No meaningful difference; both workers are idle at this load.
 - **P50 = 8,227ms, P99 = 8,300ms** — near-baseline, near-zero variance. No queueing.
 - **Interpretation:** At u=10, the second worker adds no observable benefit. Load is too low to stress even a single worker's thread pool. Identical to W=1 baseline behavior.
 
 ### u=50, W=2 (completed)
+
+**u=50, r=5**
+</br><img src="imgs/2worker-u50-r5a.png" alt="W=2 u=50 RPS" width="75%">
+</br><img src="imgs/2worker-u50-r5b.png" alt="W=2 u=50 Latency" width="75%">
 
 - **RPS = 5.0** — vs 1.9 for W=1 at the same user count. More than 2.6× throughput with 2× workers — both workers are active and splitting load.
 - **P50 = 8,300ms** — held at baseline. W=2 is NOT saturated at u=50. Most requests get a thread immediately with no queueing delay at the median.
@@ -108,6 +130,10 @@ This experiment finds:
 - **Interpretation:** W=1 was clearly saturated at u=50 (median 21,000ms, RPS capped at 1.9). W=2 at u=50 shows the saturation point has shifted right — the combined thread pool has enough capacity to absorb this load. This is the finding: each additional worker carries its own thread pool, pushing the ceiling up.
 
 ### u=100, W=2 (completed)
+
+**u=100, r=10**
+</br><img src="imgs/2worker-u100-r10a.png" alt="W=2 u=100 RPS" width="75%">
+</br><img src="imgs/2worker-u100-r10b.png" alt="W=2 u=100 Latency" width="75%">
 
 - **RPS = 4.4** — dropped from 4.9 at u=50. Saturation has kicked in between u=50 and u=100, same pattern as W=1 saturating between u=10 and u=50.
 - **P50 = 16,000ms** — queueing delay appeared at the median (~7,700ms above baseline). W=2 is now saturated.
@@ -117,6 +143,10 @@ This experiment finds:
 - **Interpretation:** W=2 saturation point falls between u=50 and u=100. This mirrors W=1's saturation between u=10 and u=50 — the ceiling shifted right by roughly one user-count tier, consistent with doubling the thread pool capacity.
 
 ### u=200, W=2 (completed)
+
+**u=200, r=20**
+</br><img src="imgs/2worker-u200-r20a.png" alt="W=2 u=200 RPS" width="75%">
+</br><img src="imgs/2worker-u200-r20b.png" alt="W=2 u=200 Latency" width="75%">
 
 - **RPS = 5.0** — flat vs u=100 (4.4). Plateau confirmed: adding users beyond the saturation point does not increase throughput.
 - **P50 = 27,000ms** — queueing delay of ~18,700ms at the median. Severe saturation.
@@ -130,11 +160,19 @@ This experiment finds:
 
 ### u=10, W=4 (completed)
 
+**u=10, r=2**
+</br><img src="imgs/4worker-u10-r2a.png" alt="W=4 u=10 RPS" width="75%">
+</br><img src="imgs/4worker-u10-r2b.png" alt="W=4 u=10 Latency" width="75%">
+
 - **RPS = 1.3** — matches W=1 and W=2 at u=10. No meaningful difference across worker counts at this load.
 - **P50 = 8,300ms, P99 = 8,400ms** — at baseline, near-zero variance. No queueing.
 - **Interpretation:** At u=10, all three worker configurations behave identically. Load is too low to stress even a single thread pool. Extra workers are idle.
 
 ### u=50, W=4 (completed)
+
+**u=50, r=5**
+</br><img src="imgs/4worker-u50-r5a.png" alt="W=4 u=50 RPS" width="75%">
+</br><img src="imgs/4worker-u50-r5b.png" alt="W=4 u=50 Latency" width="75%">
 
 - **RPS = 6.0** — highest throughput seen at u=50 across all worker counts (vs 1.9 for W=1, 5.0 for W=2).
 - **P50 = 8,300ms** — at baseline. No queueing at the median.
@@ -144,6 +182,10 @@ This experiment finds:
 
 ### u=100, W=4 (completed)
 
+**u=100, r=10**
+</br><img src="imgs/4worker-u100-r10a.png" alt="W=4 u=100 RPS" width="75%">
+</br><img src="imgs/4worker-u100-r10b.png" alt="W=4 u=100 Latency" width="75%">
+
 - **RPS = 10.4** — more than 2× W=2's 4.4 RPS at the same user count. Roughly linear scaling with worker count.
 - **P50 = 10,000ms** — only ~1,700ms above baseline. W=4 is not saturated at u=100; most requests still get a thread almost immediately.
 - **P99 = 13,000ms** — same tail queueing W=2 showed at u=50, not u=100. The saturation front has shifted right by one full user tier.
@@ -151,6 +193,11 @@ This experiment finds:
 - **Interpretation:** Pattern holds — each doubling of workers shifts the saturation point right by one user tier. W=4 at u=100 looks like W=2 at u=50 and W=1 at u=10. Saturation expected between u=100 and u=200.
 
 ### u=200, W=4 (completed)
+
+
+**u=200, r=20**
+</br><img src="imgs/4worker-u200-r20a.png" alt="W=4 u=200 RPS" width="75%">
+</br><img src="imgs/4worker-u200-r20b.png" alt="W=4 u=200 Latency" width="75%">
 
 - **RPS = 9.8** — flat vs u=100 (10.1). Plateau confirmed.
 - **P50 = 20,000ms** — queueing delay jumped to ~11,700ms at the median. Saturation has set in between u=100 and u=200.
@@ -362,57 +409,6 @@ At W=1, u=200 produced RPS=2.4 — higher than u=100 (1.7). This is not a real i
 
 ### W = 1 worker
 
-**u=10, r=2**
-</br><img src="imgs/1worker-u10-r2a.png" alt="W=1 u=10 RPS" width="75%">
-</br><img src="imgs/1worker-u10-r2b.png" alt="W=1 u=10 Latency" width="75%">
-
-**u=50, r=5**
-</br><img src="imgs/1worker-u50-r5a.png" alt="W=1 u=50 RPS" width="75%">
-</br><img src="imgs/1worker-u50-r5b.png" alt="W=1 u=50 Latency" width="75%">
-
-**u=100, r=10**
-</br><img src="imgs/1worker-u100-r10a.png" alt="W=1 u=100 RPS" width="75%">
-</br><img src="imgs/1worker-u100-r10b.png" alt="W=1 u=100 Latency" width="75%">
-
 **u=200, r=20**
 *(pending — re-run with `--html docs/reports/exp1_w1_u200.html` to capture)*
 
----
-
-### W = 2 workers
-
-**u=10, r=2**
-</br><img src="imgs/2worker-u10-r2a.png" alt="W=2 u=10 RPS" width="75%">
-</br><img src="imgs/2worker-u10-r2b.png" alt="W=2 u=10 Latency" width="75%">
-
-**u=50, r=5**
-</br><img src="imgs/2worker-u50-r5a.png" alt="W=2 u=50 RPS" width="75%">
-</br><img src="imgs/2worker-u50-r5b.png" alt="W=2 u=50 Latency" width="75%">
-
-**u=100, r=10**
-</br><img src="imgs/2worker-u100-r10a.png" alt="W=2 u=100 RPS" width="75%">
-</br><img src="imgs/2worker-u100-r10b.png" alt="W=2 u=100 Latency" width="75%">
-
-**u=200, r=20**
-</br><img src="imgs/2worker-u200-r20a.png" alt="W=2 u=200 RPS" width="75%">
-</br><img src="imgs/2worker-u200-r20b.png" alt="W=2 u=200 Latency" width="75%">
-
----
-
-### W = 4 workers
-
-**u=10, r=2**
-</br><img src="imgs/4worker-u10-r2a.png" alt="W=4 u=10 RPS" width="75%">
-</br><img src="imgs/4worker-u10-r2b.png" alt="W=4 u=10 Latency" width="75%">
-
-**u=50, r=5**
-</br><img src="imgs/4worker-u50-r5a.png" alt="W=4 u=50 RPS" width="75%">
-</br><img src="imgs/4worker-u50-r5b.png" alt="W=4 u=50 Latency" width="75%">
-
-**u=100, r=10**
-</br><img src="imgs/4worker-u100-r10a.png" alt="W=4 u=100 RPS" width="75%">
-</br><img src="imgs/4worker-u100-r10b.png" alt="W=4 u=100 Latency" width="75%">
-
-**u=200, r=20**
-</br><img src="imgs/4worker-u200-r20a.png" alt="W=4 u=200 RPS" width="75%">
-</br><img src="imgs/4worker-u200-r20b.png" alt="W=4 u=200 Latency" width="75%">

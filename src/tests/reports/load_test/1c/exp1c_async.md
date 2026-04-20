@@ -73,6 +73,10 @@ The ETL pipeline executes blocking network calls (Mock OCR ~5s, Mock LLM ~3.7s) 
 ## Observations
 
 ### u=10, W=1 (completed) - baseline
+**u=10, r=2**
+</br><img src="imgs/w1u10r2a.png" alt="W=1 u=10 RPS" width="75%">
+</br><img src="imgs/w1u10r2b.png" alt="W=1 u=10 Latency" width="75%">
+
 **Throughput Efficiency:** With an RPS of 1.50 and 10 users, each user is completing a request roughly every 6.6 seconds ($10 / 1.50$). This aligns closely with our total pipeline logic (5s sleep + ~3.7s overhead), suggesting that the worker process is busy but not yet overwhelmed.
 
 **Latency Consistency:** The P50 (8,900ms) and P99 (9,900ms) are within 1 second of each other. This "tight" distribution confirms that there is minimal queueing; requests are getting a thread almost immediately upon arrival.
@@ -80,6 +84,10 @@ The ETL pipeline executes blocking network calls (Mock OCR ~5s, Mock LLM ~3.7s) 
 **Pipeline Overhead:** Subtracting the 5,000ms OCR sleep from the Average (8,698ms) leaves ~3.7 seconds of "Internal Overhead." This identifies the CPU/IO cost of the non-OCR logic (database writes, schema validation, and logging).
 
 ### u=50, W=1 (completed)
+**u=50, r=5**
+</br><img src="imgs/w1u50r5a.png" alt="W=1 u=50 RPS" width="75%">
+</br><img src="imgs/w1u50r5b.png" alt="W=1 u=50 Latency" width="75%">
+
 **System Saturation:** The worker is fully exhausted. A median latency (P50) of 26,000ms confirms a massive backlog. Requests are spending more time sitting in the queue than actually being processed.
 
 **Throughput Collapse:** Increasing the load by 5x (from 10 to 50 users) caused the throughput to drop by 66% (from 1.5 RPS to 0.5 RPS). This indicates "congestive collapse," where the overhead of managing the massive queue prevents the worker from finishing tasks.
@@ -91,6 +99,10 @@ The ETL pipeline executes blocking network calls (Mock OCR ~5s, Mock LLM ~3.7s) 
 **Non-Linear Scaling:** The data shows that the system does not scale with load. Beyond 10 users, every additional user directly degrades the experience for everyone else without increasing the total amount of work finished per second.
 
 ### u=100, W=1 (completed)
+
+**u=100, r=10**
+</br><img src="imgs/w1u100r10a.png" alt="W=1 u=100 RPS" width="75%">
+</br><img src="imgs/w1u100r10b.png" alt="W=1 u=100 Latency" width="75%">
 
 **Throughput Stagnation:**
 With an RPS of 0.60 and 100 users, each user is only completing a request every 166 seconds ($100 / 0.60$). Despite a 10x increase in users compared to the baseline, the worker is producing 60% less total work per second. This confirms the system has moved past simple saturation and into "congestive collapse."
@@ -107,6 +119,11 @@ The P99 of 70,000ms exceeds the standard 30-second and 60-second timeouts found 
 ---
 
 ### u=10, W=2 (completed)
+
+**u=10, r=2**
+</br><img src="imgs/w2u10r2a.png" alt="W=2 u=10 RPS" width="75%">
+</br><img src="imgs/w2u10r2b.png" alt="W=2 u=10 Latency" width="75%">
+
 **Throughput Efficiency:**
 With an RPS of 1.0 and 10 users, each user completes a request every 10 seconds ($10 / 1.0$). Since the pipeline takes ~8.5s to run, the workers are comfortably alternating tasks. The system is currently "under-driven," meaning it has plenty of leftover capacity.
 
@@ -114,6 +131,11 @@ With an RPS of 1.0 and 10 users, each user completes a request every 10 seconds 
 The P50 (8,500ms) and P99 (8,800ms) are nearly identical. This tight 300ms gap proves there is zero queueing. Because you have two workers and a low arrival rate, a worker is almost always "free" the moment a new request arrives.
 
 ### u=50, W=2 (completed)
+
+**u=50, r=5**
+</br><img src="imgs/w2u50r5a.png" alt="W=2 u=50 RPS" width="75%">
+</br><img src="imgs/w2u50r5b.png" alt="W=2 u=50 Latency" width="75%">
+
 **Parallel Scaling:**
 By adding a second worker, the RPS jumped to 2.40 (compared to the 0.50 seen with 1 worker at this load). This is a 480% improvement in throughput. The two workers are effectively "doubling up" to clear the backlog, preventing the congestive collapse seen in your previous tests.
 
@@ -121,6 +143,11 @@ By adding a second worker, the RPS jumped to 2.40 (compared to the 0.50 seen wit
 The P50 (14,000ms) indicates that the average user is only waiting about 5–6 seconds in line before their 8.5s task begins. While there is now a "waiting room," the line is moving fast enough to keep the total response time well under the 20-second mark.
 
 ### u=100, W=2 (completed)
+
+**u=100, r=10**
+</br><img src="imgs/w2u100r10a.png" alt="W=1 u=100 RPS" width="75%">
+</br><img src="imgs/w2u100r10b.png" alt="W=1 u=100 Latency" width="75%">
+
 **Throughput Ceiling:**
 The RPS increased only slightly to 2.7 despite doubling the users to 100. This suggests that while two workers are better than one, you have hit the CPU or Database limit of the host machine. Adding more users at this point just makes the wait longer without finishing more work.
 
@@ -133,6 +160,11 @@ Subtracting the 5,000ms OCR sleep and the 17,000ms of estimated queueing from th
 ---
 
 ### u=10, W=4 (completed)
+
+**u=10, r=2**
+</br><img src="imgs/w4u10r2a.png" alt="W=1 u=10 RPS" width="75%">
+</br><img src="imgs/w4u10r2b.png" alt="W=1 u=10 Latency" width="75%">
+
 **Throughput Efficiency:**
 With an RPS of 1.0 and 10 users, each user completes a request every 10 seconds. Since you have 4 workers available to handle a ~8.5s task, the system is essentially "idling." Most workers are waiting for work rather than requests waiting for workers.
 
@@ -142,6 +174,11 @@ The P50 (8,600ms) and P99 (8,800ms) remain tightly coupled. This confirms that w
 ---
 
 ### u=50, W=4 (completed)
+
+**u=50, r=5**
+</br><img src="imgs/w4u50r5a.png" alt="W=1 u=50 RPS" width="75%">
+</br><img src="imgs/w4u50r5b.png" alt="W=1 u=50 Latency" width="75%">
+
 **Parallel Scaling:**
 The RPS hit 5.0, which is a perfect linear scale compared to the 1.0 RPS at 10 users. By increasing the worker count to 4, the system is now able to handle 50 concurrent users while keeping the Average latency (10,208ms) very close to the base execution time.
 
@@ -151,6 +188,11 @@ Subtracting the base pipeline logic (~8.7s) from the P50 (10,000ms) shows only a
 ---
 
 ### u=100, W=4 (completed)
+
+**u=100, r=10**
+</br><img src="imgs/w4u100r10a.png" alt="W=1 u=100 RPS" width="75%">
+</br><img src="imgs/w4u100r10b.png" alt="W=1 u=100 Latency" width="75%">
+
 **Throughput Ceiling and Diminishing Returns:**
 The RPS increased to 5.6. While this is your highest throughput yet, the jump from 5.0 to 5.6 (despite doubling users) suggests the system is finally approaching total resource saturation. You are no longer gaining significant speed by adding more users; you are only adding stress to the thread pool.
 
@@ -163,16 +205,31 @@ The P99 (22,000ms) is still well below the critical 30-second timeout threshold.
 ---
 
 ### u=10, W=8 (completed)
+
+**u=10, r=2**
+</br><img src="imgs/w8u10r2a.png" alt="W=1 u=10 RPS" width="75%">
+</br><img src="imgs/w8u10r2b.png" alt="W=1 u=10 Latency" width="75%">
+
 **Under-Utilized Baseline:**
 With 8 workers and only 10 users, the system is almost entirely idle between requests. The Avg (8,505ms) is the lowest across all experiments, representing the "floor" of your pipeline. There is zero contention; every request effectively gets its own dedicated worker.
 
 ### u=50, W=8 (completed)
+
+**u=50, r=5**
+</br><img src="imgs/w8u50r5a.png" alt="W=1 u=50 RPS" width="75%">
+</br><img src="imgs/w8u50r5b.png" alt="W=1 u=50 Latency" width="75%">
+
 **Stable Mid-Load:**
 At 50 users, the throughput (4.9 RPS) and latencies (P50 of 9.8s) are nearly identical to the W=4 results.
 
 The Insight: This shows that for 50 users, W4 was already sufficient. Moving to W8 provides "diminishing returns" at this specific load because the arrival rate isn't high enough to keep all 8 workers busy.
 
 ### u=100, W=8 (completed)
+
+**u=100, r=10**
+</br><img src="imgs/w8u100r10a.png" alt="W=1 u=100 RPS" width="75%">
+</br><img src="imgs/w8u100r10b.png" alt="W=1 u=100 Latency" width="75%">
+
 **High-Throughput Champion:**
 This is where W8 shines.
 
@@ -297,69 +354,3 @@ The "Hardware Wall" is further out: Since you saw a jump from 5.6 to 9.7 RPS, yo
 Safe for Spikes: With a P99 of 19 seconds, you now have a massive 11-second safety buffer before hitting the 30-second timeout cliff. This configuration is robust enough to handle unexpected bursts of traffic beyond 100 users.
 
 The Non-Fancy Bottom Line: W8 is your high-performance configuration. It doubles your "factory output" compared to W4 and ensures that even during a 100-user rush, nobody waits more than a few seconds to start their processing.
-
-
----
-
-## Charts
-
-### W = 1 worker
-**u=10, r=2**
-</br><img src="imgs/w1u10r2a.png" alt="W=1 u=10 RPS" width="75%">
-</br><img src="imgs/w1u10r2b.png" alt="W=1 u=10 Latency" width="75%">
-
-**u=50, r=5**
-</br><img src="imgs/w1u50r5a.png" alt="W=1 u=50 RPS" width="75%">
-</br><img src="imgs/w1u50r5b.png" alt="W=1 u=50 Latency" width="75%">
-
-**u=100, r=10**
-</br><img src="imgs/w1u100r10a.png" alt="W=1 u=100 RPS" width="75%">
-</br><img src="imgs/w1u100r10b.png" alt="W=1 u=100 Latency" width="75%">
-
----
-
-### W = 2 workers
-
-**u=10, r=2**
-</br><img src="imgs/w2u10r2a.png" alt="W=2 u=10 RPS" width="75%">
-</br><img src="imgs/w2u10r2b.png" alt="W=2 u=10 Latency" width="75%">
-
-**u=50, r=5**
-</br><img src="imgs/w2u50r5a.png" alt="W=2 u=50 RPS" width="75%">
-</br><img src="imgs/w2u50r5b.png" alt="W=2 u=50 Latency" width="75%">
-
-**u=100, r=10**
-</br><img src="imgs/w2u100r10a.png" alt="W=1 u=100 RPS" width="75%">
-</br><img src="imgs/w2u100r10b.png" alt="W=1 u=100 Latency" width="75%">
-
----
-
-### W = 4 workers
-
-**u=10, r=2**
-</br><img src="imgs/w4u10r2a.png" alt="W=1 u=10 RPS" width="75%">
-</br><img src="imgs/w4u10r2b.png" alt="W=1 u=10 Latency" width="75%">
-
-**u=50, r=5**
-</br><img src="imgs/w4u50r5a.png" alt="W=1 u=50 RPS" width="75%">
-</br><img src="imgs/w4u50r5b.png" alt="W=1 u=50 Latency" width="75%">
-
-**u=100, r=10**
-</br><img src="imgs/w4u100r10a.png" alt="W=1 u=100 RPS" width="75%">
-</br><img src="imgs/w4u100r10b.png" alt="W=1 u=100 Latency" width="75%">
-
-
----
-
-### W = 8 workers
-**u=10, r=2**
-</br><img src="imgs/w8u10r2a.png" alt="W=1 u=10 RPS" width="75%">
-</br><img src="imgs/w8u10r2b.png" alt="W=1 u=10 Latency" width="75%">
-
-**u=50, r=5**
-</br><img src="imgs/w8u50r5a.png" alt="W=1 u=50 RPS" width="75%">
-</br><img src="imgs/w8u50r5b.png" alt="W=1 u=50 Latency" width="75%">
-
-**u=100, r=10**
-</br><img src="imgs/w8u100r10a.png" alt="W=1 u=100 RPS" width="75%">
-</br><img src="imgs/w8u100r10b.png" alt="W=1 u=100 Latency" width="75%">
